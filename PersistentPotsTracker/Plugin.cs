@@ -4,6 +4,8 @@ using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.InstanceContent;
 using Lumina.Excel.Sheets;
+using PersistentPotsTracker.Models;
+using PersistentPotsTracker.Services;
 using PersistentPotsTracker.Windows;
 using System;
 using System.Collections.Generic;

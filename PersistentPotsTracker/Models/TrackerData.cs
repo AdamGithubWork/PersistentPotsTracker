@@ -1,3 +1,4 @@
+
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -33,7 +34,6 @@ public class TrackerData
     [JsonPropertyName("encounter_history")]
     public string EncounterHistoryJson { get; set; } = "[]";
 
-    // Store parsed histories so we don't deserialize repeatedly.
     private List<PotData>? cachedPots;
     private List<PotData>? cachedFates;
     private List<PotData>? cachedEncounters;
@@ -68,31 +68,4 @@ public class TrackerData
             return new();
         }
     }
-}
-
-public class PotData
-{
-    [JsonPropertyName("fate_id")]
-    public int FateId { get; set; }
-
-    [JsonPropertyName("spawn_time")]
-    public long SpawnTime { get; set; }
-
-    [JsonPropertyName("death_time")]
-    public long DeathTime { get; set; }
-
-    [JsonPropertyName("last_seen")]
-    public long LastSeen { get; set; }
-
-    [JsonPropertyName("respawn_times")]
-    public List<long> RespawnTimes { get; set; } = new();
-
-    [JsonPropertyName("killed_fates")]
-    public int KilledFates { get; set; }
-
-    [JsonPropertyName("killed_ces")]
-    public int KilledCes { get; set; }
-
-    [JsonPropertyName("state")]
-    public int State { get; set; }
 }

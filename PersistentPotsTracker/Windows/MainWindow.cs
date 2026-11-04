@@ -1,5 +1,6 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
+using PersistentPotsTracker.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
