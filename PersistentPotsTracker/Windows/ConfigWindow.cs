@@ -10,7 +10,7 @@ public class ConfigWindow : Window
     private readonly Plugin plugin;
 
     public ConfigWindow(Plugin plugin)
-        : base("Occult Tracker Settings###PersistentPotsTrackerConfigWindow")
+        : base("Persistent Pots Tracker Settings###PersistentPotsTrackerConfigWindow")
     {
         this.plugin = plugin;
 
@@ -20,7 +20,7 @@ public class ConfigWindow : Window
 
     public override void Draw()
     {
-        ImGui.Text("Occult Tracker Settings");
+        ImGui.Text("Persistent Pots Tracker Settings");
         ImGui.Separator();
 
         bool movable =
