@@ -123,7 +123,7 @@ public sealed class TrackerService : IDisposable
 
         refreshPending = false;
 
-        var datacenters = new List<int>(4);
+        var datacenters = new List<int>(5);
 
         if (configuration.ShowAether)
             datacenters.Add(4);
@@ -136,7 +136,8 @@ public sealed class TrackerService : IDisposable
 
         if (configuration.ShowDynamis)
             datacenters.Add(11);
-
+        if (configuration.ShowMateria)
+            datacenters.Add(9);
         if (datacenters.Count == 0)
         {
             Trackers = new();

@@ -89,6 +89,7 @@ public class PotPredictionService
             4 => "Aether",
             5 => "Primal",
             8 => "Crystal",
+            9 => "Materia",
             11 => "Dynamis",
             _ => $"Unknown ({tracker.Datacenter})"
         };

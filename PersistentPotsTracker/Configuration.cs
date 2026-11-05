@@ -14,6 +14,7 @@ public class Configuration : IPluginConfiguration
     public bool ShowPrimal { get; set; } = true;
     public bool ShowCrystal { get; set; } = true;
     public bool ShowDynamis { get; set; } = true;
+    public bool ShowMateria { get; set; } = true;
     public bool IsConfigWindowMovable { get; set; } = true;
 
     [NonSerialized]

@@ -86,7 +86,7 @@ public class MainWindow : Window
         bool primal = plugin.Configuration.ShowPrimal;
         bool crystal = plugin.Configuration.ShowCrystal;
         bool dynamis = plugin.Configuration.ShowDynamis;
-
+        bool materia = plugin.Configuration.ShowMateria;
         bool changed = false;
 
         if (ImGui.Checkbox("Aether", ref aether))
@@ -118,7 +118,13 @@ public class MainWindow : Window
             plugin.Configuration.ShowDynamis = dynamis;
             changed = true;
         }
+        ImGui.SameLine();
 
+        if (ImGui.Checkbox("Materia", ref materia))
+        {
+            plugin.Configuration.ShowMateria = materia;
+            changed = true;
+        }
         if (changed)
         {
             plugin.Configuration.Save();

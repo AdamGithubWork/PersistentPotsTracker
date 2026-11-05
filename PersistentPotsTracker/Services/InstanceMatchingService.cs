@@ -141,6 +141,7 @@ public class InstanceMatchingService
             "Primal" => 5,
             "Crystal" => 8,
             "Dynamis" => 11,
+            "Materia" => 9,
             _ => 0
         };
 
