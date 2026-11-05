@@ -402,7 +402,7 @@ public class MainWindow : Window
         bool canTravel =
             (row.Zone is "North Horn" or "South Horn") &&
             (row.Datacenter is
-                "Aether" or "Primal" or "Crystal" or "Dynamis");
+                "Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia");
 
         Vector2 mouse = ImGui.GetMousePos();
 
@@ -488,7 +488,7 @@ public class MainWindow : Window
         bool canTravel =
             (row.Zone is "North Horn" or "South Horn") &&
             (row.Datacenter is
-                "Aether" or "Primal" or "Crystal" or "Dynamis");
+                "Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia");   
 
         bool hasPrediction =
             row.NextPot is "S" or "N";

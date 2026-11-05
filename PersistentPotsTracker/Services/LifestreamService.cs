@@ -63,10 +63,9 @@ public sealed class LifestreamService
         }
 
         if (row.Datacenter is not
-            ("Aether" or "Primal" or "Crystal" or "Dynamis"))
+            ("Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia"))
         {
-            message =
-                "The selected tracker has an unsupported datacenter.";
+            message = "The selected tracker has an unsupported datacenter.";
             return false;
         }
 
