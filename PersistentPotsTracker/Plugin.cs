@@ -2,14 +2,12 @@ using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
-using FFXIVClientStructs.FFXIV.Client.Game.InstanceContent;
 using Lumina.Excel.Sheets;
 using PersistentPotsTracker.Models;
 using PersistentPotsTracker.Services;
 using PersistentPotsTracker.Windows;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,7 +31,6 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ICommandManager commandManager;
     private readonly IFramework framework;
     private readonly IDataManager dataManager;
-    private readonly IFateTable fateTable;
     private readonly IPluginLog pluginLog;
     private readonly IPlayerState playerState;
 
@@ -51,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly CancellationTokenSource apiCancellation = new();
 
     private readonly PotPredictionService potPredictionService;
+    private readonly InstanceMatchingService instanceMatchingService;
 
     public List<TrackerData> Trackers { get; private set; } = new();
     public List<PotTableRow> PotRows { get; private set; } = new();
@@ -58,7 +56,7 @@ public sealed class Plugin : IDalamudPlugin
     public bool IsRefreshing { get; private set; }
     public string? ApiError { get; private set; }
 
-    public int? MatchedTrackerId { get; private set; }
+    public int? MatchedTrackerId => instanceMatchingService.MatchedTrackerId;
 
     private DateTime lastRefresh = DateTime.MinValue;
     private DateTime lastMatchCheck = DateTime.MinValue;
@@ -70,9 +68,6 @@ public sealed class Plugin : IDalamudPlugin
     private DateTime? entryFollowupAt;
     private DateTime? activityRetryAt;
     private int territoryVersion;
-    private bool hasActivitySnapshot;
-    private HashSet<int> previousFateIds = new();
-    private HashSet<int> previousCeIds = new();
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
@@ -89,7 +84,7 @@ public sealed class Plugin : IDalamudPlugin
         this.framework = framework;
         this.dataManager = dataManager;
         potPredictionService = new PotPredictionService(dataManager);
-        this.fateTable = fateTable;
+        instanceMatchingService = new InstanceMatchingService(fateTable, pluginLog);
         this.pluginLog = pluginLog;
         this.playerState = playerState;
 
@@ -206,7 +201,7 @@ public sealed class Plugin : IDalamudPlugin
     private void OnTerritoryChanged(uint territoryId)
     {
         territoryVersion++;
-        SetMatchedTracker(null);
+        instanceMatchingService.Reset();
 
         bool enteringHorn = IsHornTerritory(territoryId);
         refreshPending = enteringHorn;
@@ -214,9 +209,6 @@ public sealed class Plugin : IDalamudPlugin
             ? DateTime.UtcNow + MatchRetryDelay
             : null;
         activityRetryAt = null;
-        hasActivitySnapshot = false;
-        previousFateIds.Clear();
-        previousCeIds.Clear();
     }
 
     public void DatacenterSelectionChanged()
@@ -354,8 +346,22 @@ public sealed class Plugin : IDalamudPlugin
         if (insideHorn && now - lastMatchCheck >= MatchInterval)
         {
             lastMatchCheck = now;
-            CheckLocalActivity();
-            TryMatchCurrentInstance();
+            var (localFates, localCEs) = instanceMatchingService.GetLocalActivity();
+            bool newActivity = instanceMatchingService.CheckForNewActivity(
+                localFates, localCEs);
+
+            if (newActivity && !MatchedTrackerId.HasValue)
+            {
+                refreshPending = true;
+                activityRetryAt = now + MatchRetryDelay;
+            }
+
+            if (instanceMatchingService.TryMatch(
+                    Trackers, localFates, localCEs, GetCurrentDatacenter()))
+            {
+                entryFollowupAt = null;
+                activityRetryAt = null;
+            }
         }
 
         if (insideHorn && !MatchedTrackerId.HasValue)
@@ -388,166 +394,6 @@ public sealed class Plugin : IDalamudPlugin
             refreshPending = false;
             _ = RefreshTrackersAsync();
         }
-    }
-
-    private void CheckLocalActivity()
-    {
-        var currentFates = GetLocalFateIds();
-        var currentCes = GetLocalCEIds();
-
-        if (!hasActivitySnapshot)
-        {
-            previousFateIds = currentFates;
-            previousCeIds = currentCes;
-            hasActivitySnapshot = true;
-            return;
-        }
-
-        bool newActivity = currentFates.Except(previousFateIds).Any() ||
-                           currentCes.Except(previousCeIds).Any();
-
-        previousFateIds = currentFates;
-        previousCeIds = currentCes;
-
-        if (!newActivity || MatchedTrackerId.HasValue)
-            return;
-
-        refreshPending = true;
-        activityRetryAt = DateTime.UtcNow + MatchRetryDelay;
-    }
-
-    private HashSet<int> GetLocalFateIds()
-    {
-        var ids = new HashSet<int>();
-
-        foreach (var fate in fateTable)
-        {
-            if (fate == null)
-                continue;
-
-            ids.Add((int)fate.FateId);
-        }
-
-        return ids;
-    }
-
-    private unsafe HashSet<int> GetLocalCEIds()
-    {
-        var ids = new HashSet<int>();
-        var container = DynamicEventContainer.GetInstance();
-
-        if (container == null)
-            return ids;
-
-        foreach (ref var ce in container->Events)
-        {
-            if (ce.DynamicEventId != 0 && ce.IsActive())
-                ids.Add(ce.DynamicEventId);
-        }
-
-        return ids;
-    }
-
-    private void TryMatchCurrentInstance()
-    {
-        if (MatchedTrackerId.HasValue || Trackers.Count == 0)
-            return;
-
-        var localFates = GetLocalFateIds();
-        var localCEs = GetLocalCEIds();
-
-        if (localFates.Count == 0 && localCEs.Count == 0)
-            return;
-
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        string currentDatacenter = GetCurrentDatacenter();
-
-        int currentDcId = currentDatacenter switch
-        {
-            "Aether" => 4,
-            "Primal" => 5,
-            "Crystal" => 8,
-            "Dynamis" => 11,
-            _ => 0
-        };
-
-        const long recentWindowSeconds = 90;
-
-        var candidates = new List<int>();
-
-        foreach (var tracker in Trackers)
-        {
-            if (currentDcId != 0 && tracker.Datacenter != currentDcId)
-                continue;
-
-            var activeCes = tracker.GetEncounters()
-                .Where(ce =>
-                    ce.SpawnTime > 0 &&
-                    ce.SpawnTime <= now &&
-                    ce.DeathTime == 0)
-                .ToList();
-
-            var recentFates = tracker.GetFates()
-                .Where(f =>
-                    f.SpawnTime > 0 &&
-                    f.SpawnTime <= now &&
-                    now - f.SpawnTime <= recentWindowSeconds)
-                .ToList();
-
-            bool ceMatch = activeCes.Any(ce =>
-                localCEs.Contains(ce.FateId));
-
-            bool ceConflict = activeCes.Any(ce =>
-                !localCEs.Contains(ce.FateId));
-
-            bool fateMatch = recentFates.Any(f =>
-                localFates.Contains(f.FateId));
-
-            if (localCEs.Count > 0)
-            {
-                // Require a matching CE, and reject conflicting active CEs.
-                if (!ceMatch || ceConflict)
-                    continue;
-            }
-            else
-            {
-                // Don't match a tracker showing a CE we can't see.
-                if (activeCes.Count > 0)
-                    continue;
-
-                if (!fateMatch)
-                    continue;
-            }
-
-            candidates.Add(tracker.Id);
-        }
-
-        if (candidates.Count == 1)
-        {
-            SetMatchedTracker(candidates[0]);
-        }
-        else if (candidates.Count > 1)
-        {
-            pluginLog.Debug(
-                $"INSTANCE MATCH: Ambiguous ({candidates.Count} candidates); waiting.");
-        }
-    }
-
-    private void SetMatchedTracker(int? trackerId)
-    {
-        if (MatchedTrackerId == trackerId)
-            return;
-
-        MatchedTrackerId = trackerId;
-
-        if (trackerId.HasValue)
-        {
-            entryFollowupAt = null;
-            activityRetryAt = null;
-        }
-
-        pluginLog.Information(
-            $"INSTANCE MATCH: {trackerId?.ToString() ?? "NONE"}");
     }
 
     public void Dispose()
