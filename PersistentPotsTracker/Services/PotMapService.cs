@@ -173,11 +173,11 @@ public sealed class PotMapService
     }
 
     private static bool TryGetLocation(
-        PotTableRow row,
-        out uint territoryId,
-        out float x,
-        out float y,
-        out string potName)
+    PotTableRow row,
+    out uint territoryId,
+    out float x,
+    out float y,
+    out string potName)
     {
         territoryId = 0;
         x = 0;
@@ -188,30 +188,30 @@ public sealed class PotMapService
         {
             case ("South Horn", "S"):
                 territoryId = SouthHornTerritory;
-                x = 25.6f;
-                y = 17.1f;
-                potName = "Persistent Pots";
-                break;
-
-            case ("South Horn", "N"):
-                territoryId = SouthHornTerritory;
                 x = 11.9f;
                 y = 32.0f;
                 potName = "Pleading Pots";
                 break;
 
-            case ("North Horn", "S"):
-                territoryId = NorthHornTerritory;
-                x = 26.2f;
-                y = 11.6f;
-                potName = "Daylight Pottery";
+            case ("South Horn", "N"):
+                territoryId = SouthHornTerritory;
+                x = 25.6f;
+                y = 17.1f;
+                potName = "Persistent Pots";
                 break;
 
-            case ("North Horn", "N"):
+            case ("North Horn", "S"):
                 territoryId = NorthHornTerritory;
                 x = 11.0f;
                 y = 25.8f;
                 potName = "In a Pot of Bother";
+                break;
+
+            case ("North Horn", "N"):
+                territoryId = NorthHornTerritory;
+                x = 26.2f;
+                y = 11.6f;
+                potName = "Daylight Pottery";
                 break;
 
             default:
