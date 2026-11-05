@@ -50,8 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly TrackerApiClient apiClient = new();
     private readonly CancellationTokenSource apiCancellation = new();
 
-    private readonly Dictionary<int, string> fateNameCache = new();
-    private readonly Dictionary<int, string> ceNameCache = new();
+    private readonly PotPredictionService potPredictionService;
 
     public List<TrackerData> Trackers { get; private set; } = new();
     public List<PotTableRow> PotRows { get; private set; } = new();
@@ -89,6 +88,7 @@ public sealed class Plugin : IDalamudPlugin
         this.commandManager = commandManager;
         this.framework = framework;
         this.dataManager = dataManager;
+        potPredictionService = new PotPredictionService(dataManager);
         this.fateTable = fateTable;
         this.pluginLog = pluginLog;
         this.playerState = playerState;
@@ -284,7 +284,7 @@ public sealed class Plugin : IDalamudPlugin
             if (results.Count > 0)
             {
                 Trackers = results;
-                PotRows = BuildPotRows(results);
+                PotRows = potPredictionService.BuildPotRows(results);
                 ApiError = null;
             }
             else
@@ -548,185 +548,6 @@ public sealed class Plugin : IDalamudPlugin
 
         pluginLog.Information(
             $"INSTANCE MATCH: {trackerId?.ToString() ?? "NONE"}");
-    }
-
-    private string GetFateName(int fateId)
-    {
-        if (fateNameCache.TryGetValue(fateId, out var cached))
-            return cached;
-
-        var sheet = dataManager.GetExcelSheet<Fate>();
-        var fate = sheet.GetRowOrDefault((uint)fateId);
-
-        string name = fate?.Name.ToString() ?? "";
-
-        if (string.IsNullOrWhiteSpace(name))
-            name = $"FATE {fateId}";
-
-        fateNameCache[fateId] = name;
-        return name;
-    }
-
-    private string GetCEName(int ceId)
-    {
-        if (ceNameCache.TryGetValue(ceId, out var cached))
-            return cached;
-
-        var sheet =
-            dataManager.GetExcelSheet<
-                Lumina.Excel.Sheets.DynamicEvent>();
-
-        var ce = sheet.GetRowOrDefault((uint)ceId);
-
-        string name = ce?.Name.ToString() ?? "";
-
-        if (string.IsNullOrWhiteSpace(name))
-            name = $"CE {ceId}";
-
-        ceNameCache[ceId] = name;
-        return name;
-    }
-
-    private string GetLastCurrentEncounter(
-        List<PotData> history,
-        bool isFate,
-        long now)
-    {
-        PotData? latestActive = null;
-        PotData? latest = null;
-
-        foreach (var encounter in history)
-        {
-            if (encounter.SpawnTime <= 0 ||
-                encounter.SpawnTime > now)
-                continue;
-
-            if (latest == null ||
-                encounter.SpawnTime > latest.SpawnTime)
-            {
-                latest = encounter;
-            }
-
-            if (encounter.DeathTime == 0 &&
-                (latestActive == null ||
-                 encounter.SpawnTime > latestActive.SpawnTime))
-            {
-                latestActive = encounter;
-            }
-        }
-
-        var selected = latestActive ?? latest;
-
-        if (selected == null)
-            return "Unknown";
-
-        string name = isFate
-            ? GetFateName(selected.FateId)
-            : GetCEName(selected.FateId);
-
-        return latestActive != null
-            ? $"{name} (Active)"
-            : name;
-    }
-
-    private List<PotTableRow> BuildPotRows(
-        List<TrackerData> trackers)
-    {
-        var rows =
-            new List<PotTableRow>(trackers.Count);
-
-        long now =
-            DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-        foreach (var tracker in trackers)
-        {
-            var pots = tracker.GetPots();
-            var fates = tracker.GetFates();
-            var encounters = tracker.GetEncounters();
-
-            PotData? lastPot = null;
-            bool hasSouth = false;
-            bool hasNorth = false;
-
-            foreach (var pot in pots)
-            {
-                switch (pot.FateId)
-                {
-                    case 1976:
-                    case 1977:
-                        hasSouth = true;
-                        break;
-
-                    case 2072:
-                    case 2073:
-                        hasNorth = true;
-                        break;
-
-                    default:
-                        continue;
-                }
-
-                if (pot.SpawnTime <= 0 ||
-                    pot.SpawnTime > now)
-                    continue;
-
-                if (lastPot == null ||
-                    pot.SpawnTime > lastPot.SpawnTime)
-                {
-                    lastPot = pot;
-                }
-            }
-
-            string zone = hasSouth
-                ? "South Horn"
-                : hasNorth
-                    ? "North Horn"
-                    : "Unknown";
-
-            string nextPot = "Unknown";
-            long nextSpawnTime = 0;
-
-            if (lastPot != null)
-            {
-                nextPot = lastPot.FateId switch
-                {
-                    1976 or 2072 => "S",
-                    1977 or 2073 => "N",
-                    _ => "Unknown"
-                };
-
-                nextSpawnTime =
-                    lastPot.SpawnTime + 1800;
-            }
-
-            string datacenter =
-                tracker.Datacenter switch
-                {
-                    4 => "Aether",
-                    5 => "Primal",
-                    8 => "Crystal",
-                    11 => "Dynamis",
-                    _ => $"Unknown ({tracker.Datacenter})"
-                };
-
-            rows.Add(new PotTableRow
-            {
-                TrackerId = tracker.Id,
-                Datacenter = datacenter,
-                Zone = zone,
-
-                LastCurrentCE = GetLastCurrentEncounter(
-                    encounters, false, now),
-
-                LastCurrentFate = GetLastCurrentEncounter(
-                    fates, true, now),
-
-                NextPot = nextPot,
-                NextSpawnTime = nextSpawnTime
-            });
-        }
-
-        return rows;
     }
 
     public void Dispose()
