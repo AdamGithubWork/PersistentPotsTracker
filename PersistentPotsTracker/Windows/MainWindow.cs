@@ -28,7 +28,20 @@ public class MainWindow : Window
 
     private static readonly Vector4 HoverRowColor =
         new(0.3f, 0.3f, 0.3f, 0.2f);
+    private static readonly Vector4 AetherRowColor =
+        new(0.92f, 0.49f, 0.14f, 0.40f);
 
+    private static readonly Vector4 PrimalRowColor =
+        new(0.86f, 0.18f, 0.22f, 0.40f);
+
+    private static readonly Vector4 CrystalRowColor =
+        new(0.59f, 0.25f, 0.88f, 0.40f);
+
+    private static readonly Vector4 DynamisRowColor =
+        new(0.96f, 0.31f, 0.67f, 0.40f);
+
+    private static readonly Vector4 MateriaRowColor =
+        new(0.90f, 0.78f, 0.14f, 0.40f);
     private static readonly Vector4 SuccessColor =
         new(0.3f, 1f, 0.3f, 1f);
 
@@ -333,7 +346,13 @@ public class MainWindow : Window
 
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
-
+        if (!isSelected && !isCurrentInstance)
+        {
+            ImGui.TableSetBgColor(
+                ImGuiTableBgTarget.CellBg,
+                ImGui.ColorConvertFloat4ToU32(
+                    GetDatacenterRowColor(row.Datacenter)));
+        }
         // Capture row bounds without creating layout widgets.
         Vector2 rowStart = ImGui.GetCursorScreenPos();
 
@@ -416,26 +435,25 @@ public class MainWindow : Window
             mouse.Y < bottom;
 
         // Selected destination takes priority over other highlights.
+        Vector4 rowColor;
+
         if (isSelected)
         {
             ImGui.TableSetBgColor(
                 ImGuiTableBgTarget.RowBg0,
-                ImGui.ColorConvertFloat4ToU32(
-                    SelectedRowColor));
+                ImGui.ColorConvertFloat4ToU32(SelectedRowColor));
         }
         else if (isCurrentInstance)
         {
             ImGui.TableSetBgColor(
                 ImGuiTableBgTarget.RowBg0,
-                ImGui.ColorConvertFloat4ToU32(
-                    MatchedRowColor));
+                ImGui.ColorConvertFloat4ToU32(MatchedRowColor));
         }
         else if (hovered)
         {
             ImGui.TableSetBgColor(
                 ImGuiTableBgTarget.RowBg0,
-                ImGui.ColorConvertFloat4ToU32(
-                    HoverRowColor));
+                ImGui.ColorConvertFloat4ToU32(HoverRowColor));
         }
 
         if (!hovered)
@@ -459,7 +477,18 @@ public class MainWindow : Window
         }
     }
 
-
+    private static Vector4 GetDatacenterRowColor(string datacenter)
+    {
+        return datacenter switch
+        {
+            "Aether" => AetherRowColor,
+            "Primal" => PrimalRowColor,
+            "Crystal" => CrystalRowColor,
+            "Dynamis" => DynamisRowColor,
+            "Materia" => MateriaRowColor,
+            _ => Vector4.Zero
+        };
+    }
     private void DrawTravelSelection()
     {
         if (!selectedTrackerId.HasValue)
