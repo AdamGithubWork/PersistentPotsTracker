@@ -184,13 +184,9 @@ public class MainWindow : Window
         // Reserve room for the selection panel when needed.
         float availableHeight = ImGui.GetContentRegionAvail().Y;
 
-        float reservedHeight = selectedTrackerId.HasValue
-            ? TravelPanelHeight
-            : 0f;
-
         float tableHeight = Math.Max(
             100f,
-            availableHeight - reservedHeight);
+            availableHeight - TravelPanelHeight);
 
         if (!ImGui.BeginTable(
                 "PotTimerTable",
@@ -457,13 +453,17 @@ public class MainWindow : Window
         }
     }
 
+
     private void DrawTravelSelection()
     {
         if (!selectedTrackerId.HasValue)
+        {
+            ImGui.Separator();
+            ImGui.Spacing();
+            ImGui.TextDisabled("Select a tracker to view travel options.");
             return;
+        }
 
-        // Find the latest version of the selected row.
-        // Tracker data is replaced on API refresh.
         PotTableRow? row = plugin.PotRows.FirstOrDefault(
             r => r.TrackerId == selectedTrackerId.Value);
 
@@ -477,49 +477,75 @@ public class MainWindow : Window
         ImGui.Spacing();
 
         ImGui.TextDisabled("Selected destination");
+        ImGui.Text($"{row.Datacenter} - {row.Zone}");
 
-        ImGui.Text(
-            $"{row.Datacenter} - {row.Zone}");
+        bool canTravel =
+            (row.Zone is "North Horn" or "South Horn") &&
+            (row.Datacenter is
+                "Aether" or "Primal" or "Crystal" or "Dynamis");
 
-        ImGui.SameLine();
+        bool hasPrediction =
+            row.NextPot is "S" or "N";
 
-        // Place buttons toward the bottom-right.
-        const float buttonWidth = 75f;
-        const float buttonSpacing = 8f;
+        // Three buttons, aligned toward the right.
+        const float clearWidth = 65f;
+        const float mapWidth = 115f;
+        const float travelWidth = 75f;
 
-        float totalButtonWidth =
-            buttonWidth * 2 + buttonSpacing;
+        float spacing = ImGui.GetStyle().ItemSpacing.X;
 
-        float buttonStart =
+        float totalWidth =
+            clearWidth + mapWidth + travelWidth +
+            spacing * 2;
+
+        float startX =
             ImGui.GetCursorPosX() +
             ImGui.GetContentRegionAvail().X -
-            totalButtonWidth;
+            totalWidth;
 
-        if (buttonStart > ImGui.GetCursorPosX())
+        if (startX > ImGui.GetCursorPosX())
         {
-            ImGui.SetCursorPosX(buttonStart);
+            ImGui.SetCursorPosX(startX);
         }
 
         if (ImGui.Button(
                 "Clear##TravelSelection",
-                new Vector2(buttonWidth, 0)))
+                new Vector2(clearWidth, 0)))
         {
             selectedTrackerId = null;
+            return;
         }
 
         ImGui.SameLine();
 
-        bool canTravel =
-            row.Zone is "North Horn" or "South Horn" &&
-            row.Datacenter is
-                "Aether" or "Primal" or "Crystal" or "Dynamis";
+        if (!hasPrediction)
+            ImGui.BeginDisabled();
+
+        if (ImGui.Button(
+                "Show on Map##SelectedTracker",
+                new Vector2(mapWidth, 0)))
+        {
+            plugin.ShowPotOnMap(row);
+        }
+
+        if (!hasPrediction)
+            ImGui.EndDisabled();
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(
+                "Open the predicted pot location " +
+                "on the FFXIV map.");
+        }
+
+        ImGui.SameLine();
 
         if (!canTravel)
             ImGui.BeginDisabled();
 
         if (ImGui.Button(
                 "Travel##SelectedTracker",
-                new Vector2(buttonWidth, 0)))
+                new Vector2(travelWidth, 0)))
         {
             plugin.TravelToTracker(row);
         }
@@ -531,10 +557,11 @@ public class MainWindow : Window
         {
             ImGui.SetTooltip(
                 $"Travel to {row.Datacenter} / {row.Zone}\n" +
-                "Uses Lifestream. Does not select " +
-                "the exact instance.");
+                "Uses Lifestream and opens the pot map " +
+                "after arrival.");
         }
     }
+
 
     private static void DrawCountdown(
         PotTableRow row,
