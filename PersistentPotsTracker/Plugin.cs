@@ -169,7 +169,31 @@ public sealed class Plugin : IDalamudPlugin
             _ => "Unknown"
         };
     }
+    public string GetHomeWorld()
+    {
+        if (!playerState.IsLoaded || !playerState.HomeWorld.IsValid)
+            return "";
 
+        return playerState.HomeWorld.Value.Name.ToString();
+    }
+
+    public string GetHomeDatacenter()
+    {
+        if (!playerState.IsLoaded || !playerState.HomeWorld.IsValid)
+            return "Unknown";
+
+        uint id = playerState.HomeWorld.Value.DataCenter.RowId;
+
+        return id switch
+        {
+            4 => "Aether",
+            5 => "Primal",
+            8 => "Crystal",
+            11 => "Dynamis",
+            9 => "Materia",
+            _ => "Unknown"
+        };
+    }
     private bool IsHornTerritory(uint territoryId)
     {
         var sheet = dataManager.GetExcelSheet<TerritoryType>();
@@ -213,22 +237,24 @@ public sealed class Plugin : IDalamudPlugin
         return trackerService.RefreshAsync();
     }
 
-public void TravelToTracker(PotTableRow row)
-{
-    bool requested = lifestreamService.TryTravel(
-        row,
-        GetCurrentDatacenter(),
-        out var message);
-
-    LastTravelMessage = message;
-
-    if (requested)
+    public void TravelToTracker(PotTableRow row)
     {
-        potMapService.BeginTravel(
+        bool requested = lifestreamService.TryTravel(
             row,
-            ClientState.TerritoryType);
+            GetCurrentDatacenter(),
+            GetHomeDatacenter(),
+            GetHomeWorld(),
+            out var message);
+
+        LastTravelMessage = message;
+
+        if (requested)
+        {
+            potMapService.BeginTravel(
+                row,
+                ClientState.TerritoryType);
+        }
     }
-}
     public void ShowPotOnMap(PotTableRow row)
     {
         bool opened = potMapService.ShowOnMap(row);

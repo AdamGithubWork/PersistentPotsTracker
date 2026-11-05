@@ -46,6 +46,8 @@ public sealed class LifestreamService
     public bool TryTravel(
         PotTableRow row,
         string currentDatacenter,
+        string homeDatacenter,
+        string homeWorld,
         out string message)
     {
         string occultCommand = row.Zone switch
@@ -69,12 +71,30 @@ public sealed class LifestreamService
             return false;
         }
 
-        string command = string.Equals(
-            row.Datacenter,
-            currentDatacenter,
-            StringComparison.OrdinalIgnoreCase)
-            ? occultCommand
-            : $"{row.Datacenter},{occultCommand}";
+        string command;
+
+        if (string.Equals(
+                row.Datacenter,
+                currentDatacenter,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            // Already on the destination datacenter.
+            command = occultCommand;
+        }
+        else if (string.Equals(
+                     row.Datacenter,
+                     homeDatacenter,
+                     StringComparison.OrdinalIgnoreCase) &&
+                 !string.IsNullOrWhiteSpace(homeWorld))
+        {
+            // Returning to the home datacenter.
+            command = $"{homeWorld},{occultCommand}";
+        }
+        else
+        {
+            // Traveling to another datacenter.
+            command = $"{row.Datacenter},{occultCommand}";
+        }
 
         try
         {
