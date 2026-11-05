@@ -30,7 +30,19 @@ public sealed class LifestreamService
 
         this.log = log;
     }
-
+    public bool TryGetBusy(out bool busy)
+    {
+        try
+        {
+            busy = isBusy.InvokeFunc();
+            return true;
+        }
+        catch
+        {
+            busy = false;
+            return false;
+        }
+    }
     public bool TryTravel(
         PotTableRow row,
         string currentDatacenter,

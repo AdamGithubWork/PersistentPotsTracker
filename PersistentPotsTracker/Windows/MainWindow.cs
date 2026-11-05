@@ -441,9 +441,16 @@ public class MainWindow : Window
 
         ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
 
+        // Double right-click to travel immediately.
+        if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Right))
+        {
+            plugin.TravelToTracker(row);
+            return;
+        }
+
+        // Single left-click to select or deselect.
         if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
-            // Clicking the selected row clears the selection.
             selectedTrackerId = isSelected
                 ? null
                 : row.TrackerId;

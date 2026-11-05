@@ -35,7 +35,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
     private readonly PotOverlayWindow potOverlayWindow;
-
+    private readonly PotMapService potMapService;
     private readonly TrackerService trackerService;
     private readonly InstanceMatchingService instanceMatchingService;
     private readonly LifestreamService lifestreamService;
@@ -61,7 +61,8 @@ public sealed class Plugin : IDalamudPlugin
         IDataManager dataManager,
         IFateTable fateTable,
         IPluginLog pluginLog,
-        IPlayerState playerState)
+        IPlayerState playerState,
+        IGameGui gameGui)
     {
         this.pluginInterface = pluginInterface;
         this.commandManager = commandManager;
@@ -92,7 +93,10 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow = new MainWindow(this);
         configWindow = new ConfigWindow(this);
         potOverlayWindow = new PotOverlayWindow(this);
-
+        potMapService = new PotMapService(
+    gameGui,
+    dataManager,
+    pluginLog);
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);
         windowSystem.AddWindow(potOverlayWindow);
@@ -208,22 +212,47 @@ public sealed class Plugin : IDalamudPlugin
         return trackerService.RefreshAsync();
     }
 
-    public void TravelToTracker(PotTableRow row)
+public void TravelToTracker(PotTableRow row)
+{
+    bool requested = lifestreamService.TryTravel(
+        row,
+        GetCurrentDatacenter(),
+        out var message);
+
+    LastTravelMessage = message;
+
+    if (requested)
     {
-        lifestreamService.TryTravel(
+        potMapService.BeginTravel(
             row,
-            GetCurrentDatacenter(),
-            out var message);
-
-        LastTravelMessage = message;
+            ClientState.TerritoryType);
     }
+}
+    public void ShowPotOnMap(PotTableRow row)
+    {
+        bool opened = potMapService.ShowOnMap(row);
 
+        LastTravelMessage = opened
+            ? "Opened the predicted pot location on the map."
+            : "Could not open the predicted pot location.";
+    }
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (disposed)
             return;
 
         DateTime now = DateTime.UtcNow;
+        bool? lifestreamBusy =
+    lifestreamService.TryGetBusy(out bool busy)
+        ? busy
+        : null;
+
+        potMapService.Update(
+            now,
+            ClientState.TerritoryType,
+            GetCurrentDatacenter(),
+            playerState.IsLoaded,
+            lifestreamBusy);
         bool insideHorn = IsInsideHorn();
 
         if (insideHorn &&
