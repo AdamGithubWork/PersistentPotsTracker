@@ -1,3 +1,4 @@
+
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
@@ -5,9 +6,9 @@ using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using PersistentPotsTracker.Models;
 using PersistentPotsTracker.Services;
-using System.Collections.Generic;
 using PersistentPotsTracker.Windows;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace PersistentPotsTracker;
@@ -37,17 +38,19 @@ public sealed class Plugin : IDalamudPlugin
 
     private readonly TrackerService trackerService;
     private readonly InstanceMatchingService instanceMatchingService;
+    private readonly LifestreamService lifestreamService;
 
-    // Preserve the existing public API used by MainWindow and PotOverlayWindow.
     public List<TrackerData> Trackers => trackerService.Trackers;
     public List<PotTableRow> PotRows => trackerService.PotRows;
     public bool IsRefreshing => trackerService.IsRefreshing;
     public string? ApiError => trackerService.ApiError;
 
-    public int? MatchedTrackerId => instanceMatchingService.MatchedTrackerId;
+    public int? MatchedTrackerId =>
+        instanceMatchingService.MatchedTrackerId;
+
+    public string? LastTravelMessage { get; private set; }
 
     private DateTime lastMatchCheck = DateTime.MinValue;
-
     private bool disposed;
 
     public Plugin(
@@ -64,7 +67,6 @@ public sealed class Plugin : IDalamudPlugin
         this.commandManager = commandManager;
         this.framework = framework;
         this.dataManager = dataManager;
-        instanceMatchingService = new InstanceMatchingService(fateTable, pluginLog);
         this.playerState = playerState;
 
         ClientState = clientState;
@@ -75,8 +77,17 @@ public sealed class Plugin : IDalamudPlugin
 
         Configuration.Initialize(pluginInterface);
 
+        instanceMatchingService =
+            new InstanceMatchingService(fateTable, pluginLog);
+
         trackerService = new TrackerService(
-            Configuration, pluginLog, new PotPredictionService(dataManager));
+            Configuration,
+            pluginLog,
+            new PotPredictionService(dataManager));
+
+        lifestreamService = new LifestreamService(
+            pluginInterface,
+            pluginLog);
 
         mainWindow = new MainWindow(this);
         configWindow = new ConfigWindow(this);
@@ -100,7 +111,7 @@ public sealed class Plugin : IDalamudPlugin
         framework.Update += OnFrameworkUpdate;
         ClientState.TerritoryChanged += OnTerritoryChanged;
 
-        // Handle loading the plugin while already inside a Horn.
+        // Handle loading while already inside a Horn.
         if (IsHornTerritory(ClientState.TerritoryType))
         {
             trackerService.OnTerritoryChanged(true);
@@ -182,12 +193,30 @@ public sealed class Plugin : IDalamudPlugin
     private void OnTerritoryChanged(uint territoryId)
     {
         instanceMatchingService.Reset();
-        trackerService.OnTerritoryChanged(IsHornTerritory(territoryId));
+
+        trackerService.OnTerritoryChanged(
+            IsHornTerritory(territoryId));
     }
 
-    public void DatacenterSelectionChanged() => trackerService.DatacenterSelectionChanged();
+    public void DatacenterSelectionChanged()
+    {
+        trackerService.DatacenterSelectionChanged();
+    }
 
-    public Task RefreshTrackersAsync() => trackerService.RefreshAsync();
+    public Task RefreshTrackersAsync()
+    {
+        return trackerService.RefreshAsync();
+    }
+
+    public void TravelToTracker(PotTableRow row)
+    {
+        lifestreamService.TryTravel(
+            row,
+            GetCurrentDatacenter(),
+            out var message);
+
+        LastTravelMessage = message;
+    }
 
     private void OnFrameworkUpdate(IFramework framework)
     {
@@ -197,26 +226,42 @@ public sealed class Plugin : IDalamudPlugin
         DateTime now = DateTime.UtcNow;
         bool insideHorn = IsInsideHorn();
 
-        if (insideHorn && now - lastMatchCheck >= MatchInterval)
+        if (insideHorn &&
+            now - lastMatchCheck >= MatchInterval)
         {
             lastMatchCheck = now;
-            var (localFates, localCEs) = instanceMatchingService.GetLocalActivity();
-            bool newActivity = instanceMatchingService.CheckForNewActivity(
-                localFates, localCEs);
+
+            var (localFates, localCEs) =
+                instanceMatchingService.GetLocalActivity();
+
+            bool newActivity =
+                instanceMatchingService.CheckForNewActivity(
+                    localFates,
+                    localCEs);
 
             if (newActivity && !MatchedTrackerId.HasValue)
             {
                 trackerService.OnNewActivity(now);
             }
 
-            if (instanceMatchingService.TryMatch(
-                    Trackers, localFates, localCEs, GetCurrentDatacenter()))
+            bool foundMatch =
+                instanceMatchingService.TryMatch(
+                    Trackers,
+                    localFates,
+                    localCEs,
+                    GetCurrentDatacenter());
+
+            if (foundMatch)
             {
                 trackerService.OnMatchFound();
             }
         }
 
-        trackerService.Update(now, insideHorn, MatchedTrackerId.HasValue, mainWindow.IsOpen);
+        trackerService.Update(
+            now,
+            insideHorn,
+            MatchedTrackerId.HasValue,
+            mainWindow.IsOpen);
     }
 
     public void Dispose()

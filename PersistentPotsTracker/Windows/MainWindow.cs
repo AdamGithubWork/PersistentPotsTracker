@@ -1,26 +1,35 @@
 
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using PersistentPotsTracker.Models;
-using System;
-using System.Collections.Generic;
-using System.Numerics;
 
 namespace PersistentPotsTracker.Windows;
 
 public class MainWindow : Window
 {
-    private const long WarningThresholdSeconds = 300;
-
-    private static readonly Vector4 ReadyColor = new(0.3f, 1f, 0.3f, 1f);
-    private static readonly Vector4 WarningColor = new(1f, 0.8f, 0.2f, 1f);
-    private static readonly Vector4 CurrentInstanceColor = new(0.4f, 1f, 0.4f, 1f);
-    private static readonly Vector4 CurrentInstanceBackground = new(0.1f, 0.45f, 0.2f, 0.45f);
-    private static readonly Vector4 ErrorColor = new(1f, 0.3f, 0.3f, 1f);
-
     private readonly Plugin plugin;
+
     private List<PotTableRow> sortedRows = new();
     private List<PotTableRow>? lastSource;
+    private string lastSortKey = "";
+
+    private static readonly Vector4 MatchedRowColor =
+        new(0.1f, 0.45f, 0.2f, 0.45f);
+
+    private static readonly Vector4 SuccessColor =
+        new(0.3f, 1f, 0.3f, 1f);
+
+    private static readonly Vector4 WarningColor =
+        new(1f, 0.8f, 0.2f, 1f);
+
+    private static readonly Vector4 ErrorColor =
+        new(1f, 0.3f, 0.3f, 1f);
+
+    private const long SoonThresholdSeconds = 300;
 
     public MainWindow(Plugin plugin)
         : base("Persistent Pots Tracker###PersistentPotsTrackerMainWindow")
@@ -40,6 +49,12 @@ public class MainWindow : Window
         DrawRefreshControls();
         ImGui.Separator();
 
+        if (!string.IsNullOrEmpty(plugin.LastTravelMessage))
+        {
+            ImGui.TextWrapped(plugin.LastTravelMessage);
+            ImGui.Separator();
+        }
+
         DrawPotTable();
     }
 
@@ -51,6 +66,7 @@ public class MainWindow : Window
         bool primal = plugin.Configuration.ShowPrimal;
         bool crystal = plugin.Configuration.ShowCrystal;
         bool dynamis = plugin.Configuration.ShowDynamis;
+
         bool changed = false;
 
         if (ImGui.Checkbox("Aether", ref aether))
@@ -92,12 +108,16 @@ public class MainWindow : Window
 
     private void DrawRefreshControls()
     {
-        ImGui.BeginDisabled(plugin.IsRefreshing);
+        if (plugin.IsRefreshing)
+            ImGui.BeginDisabled();
 
         if (ImGui.Button("Refresh Pots"))
+        {
             _ = plugin.RefreshTrackersAsync();
+        }
 
-        ImGui.EndDisabled();
+        if (plugin.IsRefreshing)
+            ImGui.EndDisabled();
 
         ImGui.SameLine();
 
@@ -107,7 +127,8 @@ public class MainWindow : Window
         }
         else
         {
-            ImGui.Text($"Instances found: {plugin.Trackers.Count}");
+            ImGui.Text(
+                $"Instances found: {plugin.Trackers.Count}");
         }
 
         if (plugin.MatchedTrackerId.HasValue)
@@ -115,7 +136,7 @@ public class MainWindow : Window
             ImGui.SameLine();
 
             ImGui.TextColored(
-                ReadyColor,
+                SuccessColor,
                 "Current instance identified");
         }
 
@@ -138,8 +159,13 @@ public class MainWindow : Window
             ImGuiTableFlags.Sortable |
             ImGuiTableFlags.SortMulti;
 
-        if (!ImGui.BeginTable("PotTimerTable", 6, flags))
+        if (!ImGui.BeginTable("PotTimerTable", 7, flags))
             return;
+
+        ImGui.TableSetupColumn(
+            "Travel",
+            ImGuiTableColumnFlags.NoSort,
+            0.85f);
 
         ImGui.TableSetupColumn("Datacenter");
         ImGui.TableSetupColumn("Zone");
@@ -154,36 +180,7 @@ public class MainWindow : Window
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
 
-        var sortSpecs = ImGui.TableGetSortSpecs();
-
-        if (sortSpecs.SpecsDirty ||
-            !ReferenceEquals(lastSource, plugin.PotRows))
-        {
-            lastSource = plugin.PotRows;
-            sortedRows = new List<PotTableRow>(plugin.PotRows);
-
-            var columns =
-                new (int Index, int Order, bool Descending)[sortSpecs.SpecsCount];
-
-            for (int i = 0; i < sortSpecs.SpecsCount; i++)
-            {
-                var spec = sortSpecs.Specs[i];
-
-                columns[i] = (
-                    spec.ColumnIndex,
-                    spec.SortOrder,
-                    spec.SortDirection == ImGuiSortDirection.Descending
-                );
-            }
-
-            Array.Sort(columns, (a, b) =>
-                a.Order.CompareTo(b.Order));
-
-            sortedRows.Sort((a, b) =>
-                CompareRows(a, b, columns));
-
-            sortSpecs.SpecsDirty = false;
-        }
+        UpdateSortedRows();
 
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -195,76 +192,93 @@ public class MainWindow : Window
         ImGui.EndTable();
     }
 
-    private static int CompareRows(
-        PotTableRow a,
-        PotTableRow b,
-        (int Index, int Order, bool Descending)[] columns)
+    private void UpdateSortedRows()
     {
-        foreach (var column in columns)
+        var sortSpecs = ImGui.TableGetSortSpecs();
+
+        var sortParts = new List<string>();
+
+        for (int i = 0; i < sortSpecs.SpecsCount; i++)
         {
-            int result = column.Index switch
-            {
-                0 => string.Compare(
-                    a.Datacenter,
-                    b.Datacenter,
-                    StringComparison.CurrentCultureIgnoreCase),
+            var spec = sortSpecs.Specs[i];
 
-                1 => string.Compare(
-                    a.Zone,
-                    b.Zone,
-                    StringComparison.CurrentCultureIgnoreCase),
-
-                2 => string.Compare(
-                    a.LastCurrentCE,
-                    b.LastCurrentCE,
-                    StringComparison.CurrentCultureIgnoreCase),
-
-                3 => string.Compare(
-                    a.LastCurrentFate,
-                    b.LastCurrentFate,
-                    StringComparison.CurrentCultureIgnoreCase),
-
-                4 => string.Compare(
-                    a.NextPot,
-                    b.NextPot,
-                    StringComparison.CurrentCultureIgnoreCase),
-
-                5 => CompareSpawnTimes(
-                    a.NextSpawnTime,
-                    b.NextSpawnTime,
-                    column.Descending),
-
-                _ => 0
-            };
-
-            if (result == 0)
-                continue;
-
-            return column.Index == 5
-                ? result
-                : column.Descending ? -result : result;
+            sortParts.Add(
+                $"{spec.SortOrder}:{spec.ColumnIndex}:" +
+                $"{(int)spec.SortDirection}");
         }
 
-        return a.TrackerId.CompareTo(b.TrackerId);
+        string sortKey = string.Join("|", sortParts);
+
+        if (ReferenceEquals(lastSource, plugin.PotRows) &&
+            sortKey == lastSortKey)
+        {
+            return;
+        }
+
+        lastSource = plugin.PotRows;
+        lastSortKey = sortKey;
+        sortedRows = plugin.PotRows.ToList();
+
+        // Apply multi-column sorting from lowest to
+        // highest priority using stable ordering.
+        for (int i = sortSpecs.SpecsCount - 1; i >= 0; i--)
+        {
+            var spec = sortSpecs.Specs[i];
+
+            bool ascending =
+                spec.SortDirection == ImGuiSortDirection.Ascending;
+
+            sortedRows = spec.ColumnIndex switch
+            {
+                1 => ascending
+                    ? sortedRows.OrderBy(
+                        r => r.Datacenter).ToList()
+                    : sortedRows.OrderByDescending(
+                        r => r.Datacenter).ToList(),
+
+                2 => ascending
+                    ? sortedRows.OrderBy(
+                        r => r.Zone).ToList()
+                    : sortedRows.OrderByDescending(
+                        r => r.Zone).ToList(),
+
+                3 => ascending
+                    ? sortedRows.OrderBy(
+                        r => r.LastCurrentCE).ToList()
+                    : sortedRows.OrderByDescending(
+                        r => r.LastCurrentCE).ToList(),
+
+                4 => ascending
+                    ? sortedRows.OrderBy(
+                        r => r.LastCurrentFate).ToList()
+                    : sortedRows.OrderByDescending(
+                        r => r.LastCurrentFate).ToList(),
+
+                5 => ascending
+                    ? sortedRows.OrderBy(
+                        r => r.NextPot).ToList()
+                    : sortedRows.OrderByDescending(
+                        r => r.NextPot).ToList(),
+
+                6 => SortByCountdown(sortedRows, ascending),
+
+                _ => sortedRows
+            };
+        }
     }
 
-    private static int CompareSpawnTimes(
-        long a,
-        long b,
-        bool descending)
+    private static List<PotTableRow> SortByCountdown(
+        List<PotTableRow> rows,
+        bool ascending)
     {
-        if (a == 0 && b == 0)
-            return 0;
-
-        if (a == 0)
-            return 1;
-
-        if (b == 0)
-            return -1;
-
-        return descending
-            ? b.CompareTo(a)
-            : a.CompareTo(b);
+        // Unknown spawn times always appear last.
+        return ascending
+            ? rows.OrderBy(r => r.NextSpawnTime == 0)
+                  .ThenBy(r => r.NextSpawnTime)
+                  .ToList()
+            : rows.OrderBy(r => r.NextSpawnTime == 0)
+                  .ThenByDescending(r => r.NextSpawnTime)
+                  .ToList();
     }
 
     private void DrawPotRow(PotTableRow row, long now)
@@ -279,16 +293,21 @@ public class MainWindow : Window
         {
             ImGui.TableSetBgColor(
                 ImGuiTableBgTarget.RowBg0,
-                ImGui.ColorConvertFloat4ToU32(
-                    CurrentInstanceBackground));
+                ImGui.ColorConvertFloat4ToU32(MatchedRowColor));
         }
 
+        // Column 0: Travel
         ImGui.TableSetColumnIndex(0);
+
+        DrawTravelButton(row);
+
+        // Column 1: Datacenter
+        ImGui.TableSetColumnIndex(1);
 
         if (isCurrentInstance)
         {
             ImGui.TextColored(
-                CurrentInstanceColor,
+                SuccessColor,
                 row.Datacenter);
         }
         else
@@ -296,20 +315,54 @@ public class MainWindow : Window
             ImGui.TextUnformatted(row.Datacenter);
         }
 
-        ImGui.TableSetColumnIndex(1);
+        // Column 2: Zone
+        ImGui.TableSetColumnIndex(2);
         ImGui.TextUnformatted(row.Zone);
 
-        ImGui.TableSetColumnIndex(2);
+        // Column 3: Last/Current CE
+        ImGui.TableSetColumnIndex(3);
         ImGui.TextUnformatted(row.LastCurrentCE);
 
-        ImGui.TableSetColumnIndex(3);
+        // Column 4: Last/Current FATE
+        ImGui.TableSetColumnIndex(4);
         ImGui.TextUnformatted(row.LastCurrentFate);
 
-        ImGui.TableSetColumnIndex(4);
+        // Column 5: Next Pot
+        ImGui.TableSetColumnIndex(5);
         ImGui.TextUnformatted(row.NextPot);
 
-        ImGui.TableSetColumnIndex(5);
+        // Column 6: Countdown
+        ImGui.TableSetColumnIndex(6);
 
+        DrawCountdown(row, now);
+    }
+
+    private void DrawTravelButton(PotTableRow row)
+    {
+        if (row.Zone is not ("North Horn" or "South Horn"))
+        {
+            ImGui.TextDisabled("N/A");
+            return;
+        }
+
+        if (ImGui.SmallButton($"Go##Travel{row.TrackerId}"))
+        {
+            plugin.TravelToTracker(row);
+        }
+
+        if (ImGui.IsItemHovered())
+        {
+            ImGui.SetTooltip(
+                $"Ask Lifestream to travel to " +
+                $"{row.Datacenter} / {row.Zone}.\n" +
+                "Does not select the exact instance.");
+        }
+    }
+
+    private static void DrawCountdown(
+        PotTableRow row,
+        long now)
+    {
         if (row.NextSpawnTime == 0)
         {
             ImGui.TextDisabled("Waiting for first Pot");
@@ -321,10 +374,10 @@ public class MainWindow : Window
         if (remaining <= 0)
         {
             ImGui.TextColored(
-                ReadyColor,
+                SuccessColor,
                 "Ready / Overdue");
         }
-        else if (remaining <= WarningThresholdSeconds)
+        else if (remaining <= SoonThresholdSeconds)
         {
             ImGui.TextColored(
                 WarningColor,
@@ -346,9 +399,10 @@ public class MainWindow : Window
 
         if (duration.TotalHours >= 1)
         {
-            return $"{(int)duration.TotalHours:D2}:" +
-                   $"{duration.Minutes:D2}:" +
-                   $"{duration.Seconds:D2}";
+            return
+                $"{(int)duration.TotalHours:D2}:" +
+                $"{duration.Minutes:D2}:" +
+                $"{duration.Seconds:D2}";
         }
 
         return $"{duration.Minutes:D2}:{duration.Seconds:D2}";
