@@ -17,7 +17,7 @@ public sealed class PotMapService
         TimeSpan.FromMinutes(10);
 
     private static readonly TimeSpan ArrivalDelay =
-        TimeSpan.FromSeconds(3);
+        TimeSpan.FromSeconds(10);
 
     private readonly IGameGui gameGui;
     private readonly IDataManager dataManager;
