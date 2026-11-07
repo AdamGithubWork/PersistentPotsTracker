@@ -139,8 +139,6 @@ public class MainWindow : Window
 
     private void DrawRefreshControls()
     {
-        if (plugin.IsRefreshing)
-            ImGui.BeginDisabled();
         bool canRefresh = plugin.CanRefresh;
 
         ImGui.BeginDisabled(!canRefresh);
@@ -151,9 +149,9 @@ public class MainWindow : Window
         }
 
         ImGui.EndDisabled();
-        if (plugin.IsRefreshing)
-            ImGui.EndDisabled();
+
         ImGui.SameLine();
+
         if (plugin.IsRefreshing)
         {
             ImGui.TextDisabled("Refreshing...");
@@ -163,6 +161,7 @@ public class MainWindow : Window
             ImGui.Text(
                 $"Instances found: {plugin.Trackers.Count}");
         }
+
         if (plugin.MatchedTrackerId.HasValue)
         {
             ImGui.SameLine();
@@ -170,6 +169,7 @@ public class MainWindow : Window
                 SuccessColor,
                 "Current instance identified");
         }
+
         if (!string.IsNullOrEmpty(plugin.ApiError))
         {
             // The message can contain exception text, so draw it unformatted.
