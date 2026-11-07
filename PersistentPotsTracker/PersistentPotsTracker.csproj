@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
-  <PropertyGroup>
-    <Version>0.0.0.1</Version>
-    <Author>Adalith</Author>
-    <Name>Persistent Pots Tracker</Name>
-    <Punchline>Track upcoming Pot FATEs in Occult Crescent.</Punchline>
-      <Description>Displays upcoming Pot FATE predictions and countdowns for North Horn and South Horn in Final Fantasy XIV, using data from tracker.xivstats.com.</Description>
-    <RepoUrl>https://github.com/AdamGithubWork/OccultTrackerInGame</RepoUrl>
-    <Tags>occult crescent;pots;tracker</Tags>
-  </PropertyGroup>
+    <PropertyGroup>
+        <Version>0.0.0.1</Version>
+        <Author>Adalith</Author>
+        <Name>Persistent Pots Tracker</Name>
+        <Punchline>Track upcoming Pot FATEs in Occult Crescent.</Punchline>
+        <Description>Displays upcoming Pot FATE predictions and countdowns for North Horn and South Horn in Final Fantasy XIV, using data from tracker.xivstats.com.</Description>
+        <RepoUrl>https://github.com/AdamGithubWork/OccultTrackerInGame</RepoUrl>
+        <Tags>occult crescent;pots;tracker</Tags>
+    </PropertyGroup>
 </Project>

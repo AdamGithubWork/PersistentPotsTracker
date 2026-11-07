@@ -15,8 +15,7 @@ public class PotPredictionService
     // Seconds from a pot spawning to the next one.
     private const long PotSpawnIntervalSeconds = 1800;
 
-    // Pot FATE IDs: which zone each belongs to and the label shown in "Next Pot".
-    // One table instead of two parallel switches, so the IDs live in one place.
+    // Pot FATE ID -> (zone, label shown in "Next Pot").
     private static readonly Dictionary<int, (string Zone, string Label)> PotFates = new()
     {
         [1976] = (SouthHorn, "S"),
@@ -26,7 +25,6 @@ public class PotPredictionService
     };
 
     private readonly IDataManager dataManager;
-
     private readonly Dictionary<int, string> fateNameCache = new();
     private readonly Dictionary<int, string> ceNameCache = new();
 
@@ -37,18 +35,53 @@ public class PotPredictionService
 
     public List<PotTableRow> BuildPotRows(IReadOnlyList<TrackerData> trackers)
     {
-        var rows = new List<PotTableRow>(trackers.Count);
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var rows = new List<PotTableRow>(trackers.Count);
 
         foreach (var tracker in trackers)
-        {
             rows.Add(BuildPotRow(tracker, now));
-        }
 
         return rows;
     }
 
     private PotTableRow BuildPotRow(TrackerData tracker, long now)
+    {
+        var (zone, lastPot) = ReadPots(tracker, now);
+
+        var nextPot = Unknown;
+        long nextSpawnTime = 0;
+
+        if (lastPot != null)
+        {
+            nextPot = PotFates[lastPot.FateId].Label;
+            nextSpawnTime = lastPot.SpawnTime + PotSpawnIntervalSeconds;
+        }
+
+        var datacenter = tracker.Datacenter switch
+        {
+            4 => "Aether",
+            5 => "Primal",
+            8 => "Crystal",
+            9 => "Materia",
+            11 => "Dynamis",
+            _ => $"Unknown ({tracker.Datacenter})"
+        };
+
+        return new PotTableRow
+        {
+            TrackerId = tracker.Id,
+            Datacenter = datacenter,
+            Zone = zone,
+            LastCurrentCE = GetLastCurrentEncounter(tracker.GetEncounters(), GetCEName, now),
+            LastCurrentFate = GetLastCurrentEncounter(tracker.GetFates(), GetFateName, now),
+            NextPot = nextPot,
+            NextSpawnTime = nextSpawnTime
+        };
+    }
+
+    // Zone comes from any pot the tracker has ever reported, spawned yet or not.
+    // The last pot only counts if it has actually spawned.
+    private static (string Zone, PotData? LastPot) ReadPots(TrackerData tracker, long now)
     {
         PotData? lastPot = null;
         var hasSouth = false;
@@ -68,125 +101,57 @@ public class PotPredictionService
                 continue;
 
             if (lastPot == null || pot.SpawnTime > lastPot.SpawnTime)
-            {
                 lastPot = pot;
-            }
         }
 
-        var zone = hasSouth
-            ? SouthHorn
-            : hasNorth ? NorthHorn : Unknown;
-
-        var nextPot = Unknown;
-        long nextSpawnTime = 0;
-
-        if (lastPot != null)
-        {
-            if (PotFates.TryGetValue(lastPot.FateId, out var lastInfo))
-                nextPot = lastInfo.Label;
-
-            nextSpawnTime = lastPot.SpawnTime + PotSpawnIntervalSeconds;
-        }
-
-        var datacenter = tracker.Datacenter switch
-        {
-            4 => "Aether",
-            5 => "Primal",
-            8 => "Crystal",
-            9 => "Materia",
-            11 => "Dynamis",
-            _ => $"Unknown ({tracker.Datacenter})"
-        };
-
-        return new PotTableRow
-        {
-            TrackerId = tracker.Id,
-            Datacenter = datacenter,
-            Zone = zone,
-            LastCurrentCE = GetLastCurrentEncounter(
-                tracker.GetEncounters(), false, now),
-            LastCurrentFate = GetLastCurrentEncounter(
-                tracker.GetFates(), true, now),
-            NextPot = nextPot,
-            NextSpawnTime = nextSpawnTime
-        };
+        var zone = hasSouth ? SouthHorn : hasNorth ? NorthHorn : Unknown;
+        return (zone, lastPot);
     }
 
-    private string GetLastCurrentEncounter(
-        IReadOnlyList<PotData> history,
-        bool isFate,
-        long now)
+    // Prefers the newest encounter that hasn't died yet; otherwise the newest overall.
+    private static string GetLastCurrentEncounter(IReadOnlyList<PotData> history, Func<int, string> getName, long now)
     {
-        PotData? latestActive = null;
         PotData? latest = null;
+        PotData? latestActive = null;
 
         foreach (var encounter in history)
         {
-            if (encounter.SpawnTime <= 0 ||
-                encounter.SpawnTime > now)
-            {
+            if (encounter.SpawnTime <= 0 || encounter.SpawnTime > now)
                 continue;
-            }
 
-            if (latest == null ||
-                encounter.SpawnTime > latest.SpawnTime)
-            {
+            if (latest == null || encounter.SpawnTime > latest.SpawnTime)
                 latest = encounter;
-            }
 
-            if (encounter.DeathTime == 0 &&
-                (latestActive == null ||
-                 encounter.SpawnTime > latestActive.SpawnTime))
-            {
+            if (encounter.DeathTime == 0 && (latestActive == null || encounter.SpawnTime > latestActive.SpawnTime))
                 latestActive = encounter;
-            }
         }
 
         var selected = latestActive ?? latest;
-
         if (selected == null)
             return Unknown;
 
-        var name = isFate
-            ? GetFateName(selected.FateId)
-            : GetCEName(selected.FateId);
-
-        return latestActive != null
-            ? $"{name} (Active)"
-            : name;
+        var name = getName(selected.FateId);
+        return latestActive != null ? $"{name} (Active)" : name;
     }
 
-    private string GetFateName(int fateId)
+    private string GetFateName(int fateId) =>
+        LookupName(fateNameCache, fateId, "FATE",
+            id => dataManager.GetExcelSheet<Fate>().GetRowOrDefault((uint)id)?.Name.ToString());
+
+    private string GetCEName(int ceId) =>
+        LookupName(ceNameCache, ceId, "CE",
+            id => dataManager.GetExcelSheet<DynamicEvent>().GetRowOrDefault((uint)id)?.Name.ToString());
+
+    private static string LookupName(Dictionary<int, string> cache, int id, string fallbackPrefix, Func<int, string?> lookup)
     {
-        if (fateNameCache.TryGetValue(fateId, out var cached))
+        if (cache.TryGetValue(id, out var cached))
             return cached;
 
-        var sheet = dataManager.GetExcelSheet<Fate>();
-        var fate = sheet.GetRowOrDefault((uint)fateId);
-
-        var name = fate?.Name.ToString() ?? "";
-
+        var name = lookup(id);
         if (string.IsNullOrWhiteSpace(name))
-            name = $"FATE {fateId}";
+            name = $"{fallbackPrefix} {id}";
 
-        fateNameCache[fateId] = name;
-        return name;
-    }
-
-    private string GetCEName(int ceId)
-    {
-        if (ceNameCache.TryGetValue(ceId, out var cached))
-            return cached;
-
-        var sheet = dataManager.GetExcelSheet<DynamicEvent>();
-        var ce = sheet.GetRowOrDefault((uint)ceId);
-
-        var name = ce?.Name.ToString() ?? "";
-
-        if (string.IsNullOrWhiteSpace(name))
-            name = $"CE {ceId}";
-
-        ceNameCache[ceId] = name;
+        cache[id] = name;
         return name;
     }
 }

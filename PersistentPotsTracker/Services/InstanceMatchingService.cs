@@ -8,13 +8,16 @@ namespace PersistentPotsTracker.Services;
 
 public class InstanceMatchingService
 {
+    // FATEs older than this have usually ended or been replaced by the time
+    // another player's tracker reports them.
     private const long RecentFateWindowSeconds = 90;
 
     private readonly IFateTable fateTable;
     private readonly IPluginLog pluginLog;
+
     private bool hasActivitySnapshot;
     private HashSet<int> previousFateIds = new();
-    private HashSet<int> previousCeIds = new();
+    private HashSet<int> previousCEIds = new();
 
     public int? MatchedTrackerId { get; private set; }
 
@@ -24,108 +27,73 @@ public class InstanceMatchingService
         this.pluginLog = pluginLog;
     }
 
-    public (HashSet<int> Fates, HashSet<int> CEs) GetLocalActivity()
+    public HashSet<int> GetLocalFateIds() => fateTable.Select(f => (int)f.FateId).ToHashSet();
+
+    public unsafe HashSet<int> GetLocalCEIds()
     {
-        return (GetLocalFateIds(), GetLocalCEIds());
-    }
-
-    // A fresh snapshot establishes the baseline; only subsequent additions count.
-    public bool CheckForNewActivity(HashSet<int> currentFates, HashSet<int> currentCEs)
-    {
-        var newActivity = false;
-
-        if (hasActivitySnapshot)
-        {
-            newActivity =
-                currentFates.Any(id => !previousFateIds.Contains(id)) ||
-                currentCEs.Any(id => !previousCeIds.Contains(id));
-        }
-
-        previousFateIds = currentFates;
-        previousCeIds = currentCEs;
-        hasActivitySnapshot = true;
-
-        return newActivity;
-    }
-
-    // Returns true only when a unique match was established in this call.
-    public bool TryMatch(
-        IReadOnlyCollection<TrackerData> trackers,
-        HashSet<int> localFates,
-        HashSet<int> localCEs,
-        string datacenter)
-    {
-        if (MatchedTrackerId.HasValue || trackers.Count == 0)
-            return false;
-
-        var match = FindMatch(
-            trackers, localFates, localCEs, datacenter,
-            out var candidateCount);
-
-        if (match.HasValue)
-        {
-            MatchedTrackerId = match.Value;
-            pluginLog.Information($"INSTANCE MATCH: {match.Value}");
-            return true;
-        }
-
-        if (candidateCount > 1)
-        {
-            pluginLog.Debug(
-                $"INSTANCE MATCH: Ambiguous ({candidateCount} candidates); waiting.");
-        }
-
-        return false;
-    }
-
-    // Reset when the game changes territory, including the activity baseline.
-    public void Reset()
-    {
-        if (MatchedTrackerId.HasValue)
-            pluginLog.Information("INSTANCE MATCH: NONE");
-
-        MatchedTrackerId = null;
-        hasActivitySnapshot = false;
-
-        // New sets rather than Clear(): the old ones were handed in by callers.
-        previousFateIds = new HashSet<int>();
-        previousCeIds = new HashSet<int>();
-    }
-
-    private HashSet<int> GetLocalFateIds()
-    {
-        var ids = new HashSet<int>();
-
-        foreach (var fate in fateTable)
-        {
-            if (fate == null)
-                continue;
-
-            ids.Add(fate.FateId);
-        }
-
-        return ids;
-    }
-
-    private unsafe HashSet<int> GetLocalCEIds()
-    {
-        var ids = new HashSet<int>();
+        var ceIds = new HashSet<int>();
         var container = DynamicEventContainer.GetInstance();
 
         if (container == null)
-            return ids;
+            return ceIds;
 
         foreach (ref var ce in container->Events)
         {
             if (ce.DynamicEventId != 0 && ce.IsActive())
-                ids.Add(ce.DynamicEventId);
+                ceIds.Add(ce.DynamicEventId);
         }
 
-        return ids;
+        return ceIds;
     }
 
-    // A null result means no unique match was found.
-    public int? FindMatch(
+    // True if anything showed up that wasn't in the previous snapshot.
+    // The first call only records a baseline, so it never reports new activity.
+    public bool CheckForNewActivity(HashSet<int> currentFates, HashSet<int> currentCEs)
+    {
+        bool hasNewActivity = hasActivitySnapshot &&
+            (currentFates.Any(id => !previousFateIds.Contains(id)) ||
+             currentCEs.Any(id => !previousCEIds.Contains(id)));
+
+        previousFateIds = currentFates;
+        previousCEIds = currentCEs;
+        hasActivitySnapshot = true;
+
+        return hasNewActivity;
+    }
+
+    public bool TryMatch(IReadOnlyCollection<TrackerData> trackers, HashSet<int> localFates, HashSet<int> localCEs, string datacenter)
+    {
+        if (MatchedTrackerId.HasValue || trackers.Count == 0)
+            return false;
+
+        var match = FindMatch(trackers, localFates, localCEs, datacenter, out int candidateCount);
+
+        if (match.HasValue)
+        {
+            MatchedTrackerId = match.Value;
+            pluginLog.Information(
+                $"Matched tracker {match.Value} on {datacenter} ({localFates.Count} fates, {localCEs.Count} CEs locally)");
+            return true;
+        }
+
+        if (candidateCount > 1)
+            pluginLog.Debug($"{candidateCount} trackers fit the local activity, waiting for more to go on.");
+
+        return false;
+    }
+
+    public void Reset()
+    {
+        if (MatchedTrackerId.HasValue)
+            pluginLog.Information($"Cleared match for tracker {MatchedTrackerId}.");
+
+        MatchedTrackerId = null;
+        hasActivitySnapshot = false;
+        previousFateIds = new();
+        previousCEIds = new();
+    }
+
+    private static int? FindMatch(
         IReadOnlyCollection<TrackerData> trackers,
         HashSet<int> localFates,
         HashSet<int> localCEs,
@@ -134,69 +102,71 @@ public class InstanceMatchingService
     {
         candidateCount = 0;
 
-        if (trackers.Count == 0 || (localFates.Count == 0 && localCEs.Count == 0))
+        if (localFates.Count == 0 && localCEs.Count == 0)
             return null;
 
-        var currentDcId = datacenter switch
+        // Unknown datacenter (id 0) means don't filter by it.
+        int datacenterId = datacenter switch
         {
             "Aether" => 4,
             "Primal" => 5,
             "Crystal" => 8,
-            "Dynamis" => 11,
             "Materia" => 9,
+            "Dynamis" => 11,
             _ => 0
         };
-
-        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        int? candidateId = null;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        int? matchingTrackerId = null;
 
         foreach (var tracker in trackers)
         {
-            if (currentDcId != 0 && tracker.Datacenter != currentDcId)
+            if (datacenterId != 0 && tracker.Datacenter != datacenterId)
                 continue;
 
-            // CEs the API says are currently running.
-            var activeCes = tracker.GetEncounters()
-                .Where(ce => ce.SpawnTime > 0 && ce.SpawnTime <= now && ce.DeathTime == 0);
-
-            // FATEs that spawned recently enough to still be on screen.
-            var recentFates = tracker.GetFates()
-                .Where(f => f.SpawnTime > 0 && f.SpawnTime <= now &&
-                            now - f.SpawnTime <= RecentFateWindowSeconds);
-
-            var anyActiveCe = false;
-            var ceMatch = false;
-            var ceConflict = false;
-
-            foreach (var ce in activeCes)
-            {
-                anyActiveCe = true;
-
-                if (localCEs.Contains(ce.FateId))
-                    ceMatch = true;
-                else
-                    ceConflict = true;
-            }
-
-            if (localCEs.Count > 0)
-            {
-                // Every CE the tracker thinks is active must be one we can see.
-                if (!ceMatch || ceConflict)
-                    continue;
-            }
-            else
-            {
-                // No local CEs: only match trackers with no active CEs and a shared recent FATE.
-                var fateMatch = recentFates.Any(f => localFates.Contains(f.FateId));
-
-                if (anyActiveCe || !fateMatch)
-                    continue;
-            }
+            if (!TrackerFitsLocal(tracker, localFates, localCEs, now))
+                continue;
 
             candidateCount++;
-            candidateId = tracker.Id;
+            matchingTrackerId = tracker.Id;
         }
 
-        return candidateCount == 1 ? candidateId : null;
+        // Only commit on a unique candidate. A wrong match poisons the timers,
+        // which costs more than waiting for the next poll.
+        return candidateCount == 1 ? matchingTrackerId : null;
+    }
+
+    private static bool TrackerFitsLocal(TrackerData tracker, HashSet<int> localFates, HashSet<int> localCEs, long now)
+    {
+        bool hasActiveCE = false;
+        bool hasMatchingCE = false;
+        bool hasConflictingCE = false;
+
+        foreach (var ce in tracker.GetEncounters())
+        {
+            if (ce.SpawnTime <= 0 || ce.SpawnTime > now || ce.DeathTime != 0)
+                continue;
+
+            hasActiveCE = true;
+
+            if (localCEs.Contains(ce.FateId))
+                hasMatchingCE = true;
+            else
+                hasConflictingCE = true;
+        }
+
+        // CEs are the stronger signal: if we're in one, the tracker has to be
+        // running that one and nothing else.
+        if (localCEs.Count > 0)
+            return hasMatchingCE && !hasConflictingCE;
+
+        // No local CE, so a tracker with a live CE is a different instance.
+        if (hasActiveCE)
+            return false;
+
+        return tracker.GetFates().Any(fate =>
+            fate.SpawnTime > 0 &&
+            fate.SpawnTime <= now &&
+            now - fate.SpawnTime <= RecentFateWindowSeconds &&
+            localFates.Contains(fate.FateId));
     }
 }

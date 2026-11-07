@@ -1,4 +1,3 @@
-
 using Dalamud.Configuration;
 using Dalamud.Plugin;
 using System;
@@ -20,13 +19,7 @@ public class Configuration : IPluginConfiguration
     [NonSerialized]
     private IDalamudPluginInterface? pluginInterface;
 
-    public void Initialize(IDalamudPluginInterface pluginInterface)
-    {
-        this.pluginInterface = pluginInterface;
-    }
+    public void Initialize(IDalamudPluginInterface pluginInterface) => this.pluginInterface = pluginInterface;
 
-    public void Save()
-    {
-        pluginInterface?.SavePluginConfig(this);
-    }
+    public void Save() => pluginInterface?.SavePluginConfig(this);
 }

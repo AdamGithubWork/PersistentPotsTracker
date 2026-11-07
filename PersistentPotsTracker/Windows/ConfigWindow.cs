@@ -1,4 +1,3 @@
-
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using System.Numerics;
@@ -18,13 +17,21 @@ public class ConfigWindow : Window
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
+    // Flags have to be set before the window begins, so a change to the
+    // checkbox applies on the same frame.
+    public override void PreDraw()
+    {
+        Flags = plugin.Configuration.IsConfigWindowMovable
+            ? ImGuiWindowFlags.None
+            : ImGuiWindowFlags.NoMove;
+    }
+
     public override void Draw()
     {
         ImGui.Text("Persistent Pots Tracker Settings");
         ImGui.Separator();
 
-        var movable =
-            plugin.Configuration.IsConfigWindowMovable;
+        var movable = plugin.Configuration.IsConfigWindowMovable;
 
         if (ImGui.Checkbox("Allow settings window movement", ref movable))
         {
@@ -32,13 +39,7 @@ public class ConfigWindow : Window
             plugin.Configuration.Save();
         }
 
-        Flags = movable
-            ? ImGuiWindowFlags.None
-            : ImGuiWindowFlags.NoMove;
-
         ImGui.Spacing();
-        ImGui.TextDisabled(
-            "Tracker data automatically refreshes every 45 seconds."
-        );
+        ImGui.TextDisabled("Tracker data automatically refreshes every 45 seconds.");
     }
 }

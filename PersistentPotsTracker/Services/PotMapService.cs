@@ -4,6 +4,7 @@ using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using PersistentPotsTracker.Models;
 using System;
+using System.Collections.Generic;
 
 namespace PersistentPotsTracker.Services;
 
@@ -13,27 +14,34 @@ public sealed class PotMapService
     private const uint NorthHornTerritory = 1346;
     private const uint PhantomVillageTerritory = 1278;
 
-    private static readonly TimeSpan TravelTimeout =
-        TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan TravelTimeout = TimeSpan.FromMinutes(10);
 
-    private static readonly TimeSpan ArrivalDelay =
-        TimeSpan.FromSeconds(10);
+    // Give the zone time to finish loading before opening the map.
+    private static readonly TimeSpan ArrivalDelay = TimeSpan.FromSeconds(10);
+
+    private readonly record struct PotLocation(uint Territory, float X, float Y, string Name);
+
+    private static readonly Dictionary<(string Zone, string Pot), PotLocation> Locations = new()
+    {
+        [("South Horn", "S")] = new(SouthHornTerritory, 11.9f, 32.0f, "Pleading Pots"),
+        [("South Horn", "N")] = new(SouthHornTerritory, 25.6f, 17.1f, "Persistent Pots"),
+        [("North Horn", "S")] = new(NorthHornTerritory, 11.0f, 25.8f, "In a Pot of Bother"),
+        [("North Horn", "N")] = new(NorthHornTerritory, 26.2f, 11.6f, "Daylight Pottery")
+    };
 
     private readonly IGameGui gameGui;
     private readonly IDataManager dataManager;
     private readonly IPluginLog log;
 
     private PotTableRow? pendingRow;
-    public bool HasPendingTravel => pendingRow != null;
     private DateTime travelStarted;
-    private DateTime? idleSince;
+    private DateTime? arrivalSince;
     private uint startingTerritory;
-    private bool observedBusy;
+    private bool wasLifestreamBusy;
 
-    public PotMapService(
-        IGameGui gameGui,
-        IDataManager dataManager,
-        IPluginLog log)
+    public bool HasPendingTravel => pendingRow != null;
+
+    public PotMapService(IGameGui gameGui, IDataManager dataManager, IPluginLog log)
     {
         this.gameGui = gameGui;
         this.dataManager = dataManager;
@@ -42,19 +50,13 @@ public sealed class PotMapService
 
     public bool ShowOnMap(PotTableRow row)
     {
-        if (!TryGetLocation(
-                row, out var territoryId,
-                out var x, out var y,
-                out var potName))
-        {
+        if (!Locations.TryGetValue((row.Zone, row.NextPot), out var location))
             return false;
-        }
 
         try
         {
-            var territory = dataManager
-                .GetExcelSheet<TerritoryType>()
-                .GetRowOrDefault(territoryId);
+            var territory = dataManager.GetExcelSheet<TerritoryType>()
+                .GetRowOrDefault(location.Territory);
 
             if (territory == null)
                 return false;
@@ -65,34 +67,36 @@ public sealed class PotMapService
                 return false;
 
             var link = new MapLinkPayload(
-                territoryId, mapId, x, y);
+                location.Territory, mapId, location.X, location.Y);
 
-            var opened = gameGui.OpenMapWithMapLink(link);
+            bool opened = gameGui.OpenMapWithMapLink(link);
 
             if (opened)
-            {
-                log.Information(
-                    $"Opened map for {potName} at {x}, {y}");
-            }
+                log.Information($"Opened map for {location.Name} at {location.X}, {location.Y}");
 
             return opened;
         }
         catch (Exception ex)
         {
-            log.Warning(ex, "Failed to open pot map.");
+            log.Warning(ex, $"Couldn't open map for {row.Zone} / {row.NextPot}.");
             return false;
         }
     }
 
-    public void BeginTravel(
-        PotTableRow row,
-        uint currentTerritory)
+    public void BeginTravel(PotTableRow row, uint currentTerritory)
     {
         pendingRow = row;
         startingTerritory = currentTerritory;
         travelStarted = DateTime.UtcNow;
-        idleSince = null;
-        observedBusy = false;
+        arrivalSince = null;
+        wasLifestreamBusy = false;
+    }
+
+    public void CancelPendingTravel()
+    {
+        pendingRow = null;
+        arrivalSince = null;
+        wasLifestreamBusy = false;
     }
 
     public void Update(
@@ -102,123 +106,60 @@ public sealed class PotMapService
         bool playerLoaded,
         bool? lifestreamBusy)
     {
-        if (pendingRow == null)
+        if (pendingRow is not { } row)
             return;
 
         if (now - travelStarted > TravelTimeout)
         {
+            log.Debug("Pending travel timed out.");
             CancelPendingTravel();
             return;
         }
 
         if (!playerLoaded || lifestreamBusy == null)
         {
-            idleSince = null;
+            arrivalSince = null;
             return;
         }
 
         if (lifestreamBusy.Value)
         {
-            observedBusy = true;
-            idleSince = null;
+            wasLifestreamBusy = true;
+            arrivalSince = null;
             return;
         }
 
-        var row = pendingRow;
-
-        if (!string.Equals(
-                currentDatacenter,
-                row.Datacenter,
-                StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(currentDatacenter, row.Datacenter, StringComparison.OrdinalIgnoreCase))
         {
-            idleSince = null;
+            arrivalSince = null;
             return;
         }
 
-        uint destinationTerritory = row.Zone switch
+        if (!HasArrived(row, currentTerritory))
         {
-            "South Horn" => SouthHornTerritory,
-            "North Horn" => NorthHornTerritory,
-            _ => 0
-        };
-
-        var arrivedInHorn =
-            destinationTerritory != 0 &&
-            currentTerritory == destinationTerritory;
-
-        var completedTravelToVillage =
-            currentTerritory == PhantomVillageTerritory &&
-            (observedBusy ||
-             currentTerritory != startingTerritory);
-
-        if (!arrivedInHorn && !completedTravelToVillage)
-        {
-            idleSince = null;
+            arrivalSince = null;
             return;
         }
 
-        idleSince ??= now;
+        arrivalSince ??= now;
 
-        if (now - idleSince.Value < ArrivalDelay)
+        if (now - arrivalSince.Value < ArrivalDelay)
             return;
 
         CancelPendingTravel();
         ShowOnMap(row);
     }
 
-    public void CancelPendingTravel()
+    private bool HasArrived(PotTableRow row, uint currentTerritory)
     {
-        pendingRow = null;
-        idleSince = null;
-        observedBusy = false;
-    }
-
-    private static bool TryGetLocation(
-    PotTableRow row,
-    out uint territoryId,
-    out float x,
-    out float y,
-    out string potName)
-    {
-        territoryId = 0;
-        x = 0;
-        y = 0;
-        potName = "";
-
-        switch ((row.Zone, row.NextPot))
+        if (Locations.TryGetValue((row.Zone, row.NextPot), out var location) &&
+            currentTerritory == location.Territory)
         {
-            case ("South Horn", "S"):
-                territoryId = SouthHornTerritory;
-                x = 11.9f;
-                y = 32.0f;
-                potName = "Pleading Pots";
-                break;
-
-            case ("South Horn", "N"):
-                territoryId = SouthHornTerritory;
-                x = 25.6f;
-                y = 17.1f;
-                potName = "Persistent Pots";
-                break;
-
-            case ("North Horn", "S"):
-                territoryId = NorthHornTerritory;
-                x = 11.0f;
-                y = 25.8f;
-                potName = "In a Pot of Bother";
-                break;
-
-            case ("North Horn", "N"):
-                territoryId = NorthHornTerritory;
-                x = 26.2f;
-                y = 11.6f;
-                potName = "Daylight Pottery";
-                break;
-
-            default:
-                return false;
+            return true;
         }
 
-        return true;
+        // Don't count Phantom Village unless the player has actually traveled.
+        return currentTerritory == PhantomVillageTerritory &&
+               (wasLifestreamBusy || currentTerritory != startingTerritory);
     }
 }

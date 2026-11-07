@@ -1,4 +1,3 @@
-
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using PersistentPotsTracker.Models;
@@ -39,69 +38,57 @@ public class PotOverlayWindow : Window
 
         UpdateNextPot(datacenter, now);
 
-        string label;
-
-        if (datacenter == "Unknown")
-        {
-            label = "Pots: Datacenter unknown";
-        }
-        else if (cachedNextPot == null)
-        {
-            label = $"{datacenter} Pots: --:--";
-        }
-        else
-        {
-            var remaining = cachedNextPot.NextSpawnTime - now;
-            var countdown = FormatCountdown(remaining);
-
-            var zone = cachedNextPot.Zone switch
-            {
-                "South Horn" => "South",
-                "North Horn" => "North",
-                _ => cachedNextPot.Zone
-            };
-
-            label = $"{datacenter} | {zone}: {countdown}";
-        }
-
-        // Keep the button ID constant even as the countdown changes.
-        if (ImGui.Button($"{label}###PotOverlayButton"))
-        {
+        // The ### keeps the button ID constant while the label text changes.
+        if (ImGui.Button($"{BuildLabel(datacenter, now)}###PotOverlayButton"))
             plugin.OpenTrackerWindow();
-        }
 
         if (ImGui.IsItemHovered())
-        {
             DrawTooltip(datacenter, now);
-        }
     }
 
+    private string BuildLabel(string datacenter, long now)
+    {
+        if (datacenter == "Unknown")
+            return "Pots: Datacenter unknown";
+
+        if (cachedNextPot == null)
+            return $"{datacenter} Pots: --:--";
+
+        var zone = cachedNextPot.Zone switch
+        {
+            "South Horn" => "South",
+            "North Horn" => "North",
+            _ => cachedNextPot.Zone
+        };
+
+        return $"{datacenter} | {zone}: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}";
+    }
+
+    // The soonest upcoming pot on our datacenter. Cached so we don't scan every
+    // frame; recomputed when the data or datacenter changes, or once the cached
+    // pot has spawned and a later one should take over.
     private void UpdateNextPot(string datacenter, long now)
     {
-        if (ReferenceEquals(lastSource, plugin.PotRows) &&
+        var source = plugin.PotRows;
+
+        if (ReferenceEquals(lastSource, source) &&
             lastDatacenter == datacenter &&
             (cachedNextPot == null || cachedNextPot.NextSpawnTime > now))
         {
             return;
         }
 
-        lastSource = plugin.PotRows;
+        lastSource = source;
         lastDatacenter = datacenter;
         cachedNextPot = null;
 
-        foreach (var row in plugin.PotRows)
+        foreach (var row in source)
         {
-            if (row.Datacenter != datacenter ||
-                row.NextSpawnTime <= now)
-            {
+            if (row.Datacenter != datacenter || row.NextSpawnTime <= now)
                 continue;
-            }
 
-            if (cachedNextPot == null ||
-                row.NextSpawnTime < cachedNextPot.NextSpawnTime)
-            {
+            if (cachedNextPot == null || row.NextSpawnTime < cachedNextPot.NextSpawnTime)
                 cachedNextPot = row;
-            }
         }
     }
 
@@ -109,29 +96,22 @@ public class PotOverlayWindow : Window
     {
         if (datacenter == "Unknown")
         {
-            ImGui.SetTooltip(
-                "Waiting for current datacenter information");
+            ImGui.SetTooltip("Waiting for current datacenter information");
             return;
         }
 
         if (cachedNextPot == null)
         {
-            ImGui.SetTooltip(
-                "No upcoming Pot prediction available");
+            ImGui.SetTooltip("No upcoming Pot prediction available");
             return;
         }
 
-        var remaining = cachedNextPot.NextSpawnTime - now;
-        var countdown = FormatCountdown(remaining);
-
-        var tooltip =
+        ImGui.SetTooltip(
             $"Next predicted Pot on {datacenter}\n" +
             $"Zone: {cachedNextPot.Zone}\n" +
             $"Pot location: {cachedNextPot.NextPot}\n" +
-            $"Countdown: {countdown}\n\n" +
-            "Click to open Persistent Pots Tracker";
-
-        ImGui.SetTooltip(tooltip);
+            $"Countdown: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}\n\n" +
+            "Click to open Persistent Pots Tracker");
     }
 
     private static string FormatCountdown(long seconds)
@@ -139,15 +119,10 @@ public class PotOverlayWindow : Window
         if (seconds <= 0)
             return "00:00";
 
-        var duration = TimeSpan.FromSeconds(seconds);
+        var t = TimeSpan.FromSeconds(seconds);
 
-        if (duration.TotalHours >= 1)
-        {
-            return $"{(int)duration.TotalHours:D2}:" +
-                   $"{duration.Minutes:D2}:" +
-                   $"{duration.Seconds:D2}";
-        }
-
-        return $"{duration.Minutes:D2}:{duration.Seconds:D2}";
+        return t.TotalHours >= 1
+            ? $"{(int)t.TotalHours:D2}:{t.Minutes:D2}:{t.Seconds:D2}"
+            : $"{t.Minutes:D2}:{t.Seconds:D2}";
     }
 }

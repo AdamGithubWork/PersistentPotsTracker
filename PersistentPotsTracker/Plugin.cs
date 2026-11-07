@@ -16,51 +16,42 @@ public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/pots";
 
-    private static readonly TimeSpan MatchInterval =
-        TimeSpan.FromSeconds(2);
+    // The local FATE/CE scan and match attempt run on this interval rather
+    // than every frame.
+    private static readonly TimeSpan MatchInterval = TimeSpan.FromSeconds(2);
 
-    // Dalamud services
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ICommandManager commandManager;
     private readonly IFramework framework;
     private readonly IDataManager dataManager;
     private readonly IPlayerState playerState;
 
-    public IClientState ClientState { get; }
-    public Configuration Configuration { get; }
-
-    // Plugin services
     private readonly TrackerService trackerService;
     private readonly InstanceMatchingService instanceMatchingService;
     private readonly LifestreamService lifestreamService;
     private readonly PotMapService potMapService;
 
-    // Windows
-    private readonly WindowSystem windowSystem =
-        new("PersistentPotsTracker");
-
+    private readonly WindowSystem windowSystem = new("PersistentPotsTracker");
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
     private readonly PotOverlayWindow potOverlayWindow;
 
-    // Tracker data exposed to windows
+    private DateTime lastMatchCheck = DateTime.MinValue;
+    private bool disposed;
+
+    public IClientState ClientState { get; }
+    public Configuration Configuration { get; }
+
+    public bool InsideHorn { get; private set; }
+    public string? LastTravelMessage { get; private set; }
+
+    // Tracker state, passed through for the windows.
     public List<TrackerData> Trackers => trackerService.Trackers;
     public List<PotTableRow> PotRows => trackerService.PotRows;
     public bool IsRefreshing => trackerService.IsRefreshing;
     public bool CanRefresh => trackerService.CanRefresh;
     public string? ApiError => trackerService.ApiError;
-
-    public int? MatchedTrackerId =>
-        instanceMatchingService.MatchedTrackerId;
-
-    public string? LastTravelMessage { get; private set; }
-
-    // State
-    private bool insideHorn;
-    public bool InsideHorn => insideHorn;
-
-    private DateTime lastMatchCheck = DateTime.MinValue;
-    private bool disposed;
+    public int? MatchedTrackerId => instanceMatchingService.MatchedTrackerId;
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
@@ -81,32 +72,14 @@ public sealed class Plugin : IDalamudPlugin
 
         ClientState = clientState;
 
-        // Configuration
-        Configuration =
-            pluginInterface.GetPluginConfig() as Configuration
-            ?? new Configuration();
-
+        Configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         Configuration.Initialize(pluginInterface);
 
-        // Services
-        instanceMatchingService =
-            new InstanceMatchingService(fateTable, pluginLog);
+        instanceMatchingService = new InstanceMatchingService(fateTable, pluginLog);
+        trackerService = new TrackerService(Configuration, pluginLog, new PotPredictionService(dataManager));
+        lifestreamService = new LifestreamService(pluginInterface, pluginLog);
+        potMapService = new PotMapService(gameGui, dataManager, pluginLog);
 
-        trackerService = new TrackerService(
-            Configuration,
-            pluginLog,
-            new PotPredictionService(dataManager));
-
-        lifestreamService = new LifestreamService(
-            pluginInterface,
-            pluginLog);
-
-        potMapService = new PotMapService(
-            gameGui,
-            dataManager,
-            pluginLog);
-
-        // Windows
         mainWindow = new MainWindow(this);
         configWindow = new ConfigWindow(this);
         potOverlayWindow = new PotOverlayWindow(this);
@@ -115,150 +88,54 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.AddWindow(configWindow);
         windowSystem.AddWindow(potOverlayWindow);
 
-        // Command
-        commandManager.AddHandler(
-            CommandName,
-            new CommandInfo(OnCommand)
-            {
-                HelpMessage = "Open Persistent Pots Tracker."
-            });
+        commandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
+        {
+            HelpMessage = "Open Persistent Pots Tracker."
+        });
 
-        // UI events
-        pluginInterface.UiBuilder.Draw += DrawUI;
-        pluginInterface.UiBuilder.OpenMainUi += OpenMainUI;
+        pluginInterface.UiBuilder.Draw += windowSystem.Draw;
+        pluginInterface.UiBuilder.OpenMainUi += OpenTrackerWindow;
         pluginInterface.UiBuilder.OpenConfigUi += OpenConfigUI;
 
-        // Game events
         framework.Update += OnFrameworkUpdate;
         ClientState.TerritoryChanged += OnTerritoryChanged;
 
-        // Handle loading while already inside a Horn.
-        insideHorn = IsHornTerritory(ClientState.TerritoryType);
-
-        if (insideHorn)
-        {
+        // The plugin can load while the player is already inside a Horn.
+        InsideHorn = IsHornTerritory(ClientState.TerritoryType);
+        if (InsideHorn)
             trackerService.OnTerritoryChanged(true);
-        }
     }
 
-    private void OnCommand(string command, string args)
-    {
-        mainWindow.Toggle();
-    }
+    public void OpenTrackerWindow() => mainWindow.IsOpen = true;
 
-    private void DrawUI()
-    {
-        windowSystem.Draw();
-    }
+    public void DatacenterSelectionChanged() => trackerService.DatacenterSelectionChanged();
 
-    private void OpenMainUI()
-    {
-        mainWindow.IsOpen = true;
-    }
-
-    private void OpenConfigUI()
-    {
-        configWindow.IsOpen = true;
-    }
-
-    public void OpenTrackerWindow()
-    {
-        mainWindow.IsOpen = true;
-    }
-
-    // Datacenter information
-    private static string GetDatacenterName(uint id)
-    {
-        return id switch
-        {
-            4 => "Aether",
-            5 => "Primal",
-            8 => "Crystal",
-            9 => "Materia",
-            11 => "Dynamis",
-            _ => "Unknown"
-        };
-    }
+    public Task RefreshTrackersAsync() => trackerService.RefreshAsync();
 
     public string GetCurrentDatacenter()
     {
-        if (!playerState.IsLoaded)
+        if (!playerState.IsLoaded || !playerState.CurrentWorld.IsValid)
             return "Unknown";
 
-        var world = playerState.CurrentWorld;
-
-        if (!world.IsValid)
-            return "Unknown";
-
-        return GetDatacenterName(
-            world.Value.DataCenter.RowId);
+        return GetDatacenterName(playerState.CurrentWorld.Value.DataCenter.RowId);
     }
 
     public string GetHomeWorld()
     {
-        if (!playerState.IsLoaded ||
-            !playerState.HomeWorld.IsValid)
-        {
+        if (!playerState.IsLoaded || !playerState.HomeWorld.IsValid)
             return "";
-        }
 
         return playerState.HomeWorld.Value.Name.ToString();
     }
 
     public string GetHomeDatacenter()
     {
-        if (!playerState.IsLoaded ||
-            !playerState.HomeWorld.IsValid)
-        {
+        if (!playerState.IsLoaded || !playerState.HomeWorld.IsValid)
             return "Unknown";
-        }
 
-        return GetDatacenterName(
-            playerState.HomeWorld.Value.DataCenter.RowId);
+        return GetDatacenterName(playerState.HomeWorld.Value.DataCenter.RowId);
     }
 
-    // Territory detection
-    private bool IsHornTerritory(uint territoryId)
-    {
-        var sheet = dataManager.GetExcelSheet<TerritoryType>();
-        var territory = sheet.GetRowOrDefault(territoryId);
-
-        if (territory == null)
-            return false;
-
-        var name =
-            territory.Value.PlaceName.Value.Name.ToString();
-
-        return name.Contains(
-                   "South Horn",
-                   StringComparison.OrdinalIgnoreCase)
-               ||
-               name.Contains(
-                   "North Horn",
-                   StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void OnTerritoryChanged(uint territoryId)
-    {
-        insideHorn = IsHornTerritory(territoryId);
-
-        instanceMatchingService.Reset();
-
-        trackerService.OnTerritoryChanged(insideHorn);
-    }
-
-    // Tracker management
-    public void DatacenterSelectionChanged()
-    {
-        trackerService.DatacenterSelectionChanged();
-    }
-
-    public Task RefreshTrackersAsync()
-    {
-        return trackerService.RefreshAsync();
-    }
-
-    // Travel and map integration
     public void TravelToTracker(PotTableRow row)
     {
         var requested = lifestreamService.TryTravel(
@@ -271,11 +148,7 @@ public sealed class Plugin : IDalamudPlugin
         LastTravelMessage = message;
 
         if (requested)
-        {
-            potMapService.BeginTravel(
-                row,
-                ClientState.TerritoryType);
-        }
+            potMapService.BeginTravel(row, ClientState.TerritoryType);
     }
 
     public void ShowPotOnMap(PotTableRow row)
@@ -287,72 +160,84 @@ public sealed class Plugin : IDalamudPlugin
             : "Could not open the predicted pot location.";
     }
 
-    // Framework updates
-    private void OnFrameworkUpdate(IFramework framework)
+    private void OnCommand(string command, string args) => mainWindow.Toggle();
+
+    private void OpenConfigUI() => configWindow.IsOpen = true;
+
+    private static string GetDatacenterName(uint id) => id switch
+    {
+        4 => "Aether",
+        5 => "Primal",
+        8 => "Crystal",
+        9 => "Materia",
+        11 => "Dynamis",
+        _ => "Unknown"
+    };
+
+    private bool IsHornTerritory(uint territoryId)
+    {
+        var territory = dataManager.GetExcelSheet<TerritoryType>().GetRowOrDefault(territoryId);
+        if (territory == null)
+            return false;
+
+        var name = territory.Value.PlaceName.Value.Name.ToString();
+
+        return name.Contains("South Horn", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("North Horn", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void OnTerritoryChanged(uint territoryId)
+    {
+        InsideHorn = IsHornTerritory(territoryId);
+        instanceMatchingService.Reset();
+        trackerService.OnTerritoryChanged(InsideHorn);
+    }
+
+    private void OnFrameworkUpdate(IFramework _)
     {
         if (disposed)
             return;
 
         var now = DateTime.UtcNow;
 
-        // Only check Lifestream while travel is pending.
+        // Lifestream is only polled while a travel is pending.
         if (potMapService.HasPendingTravel)
-        {
-            bool? lifestreamBusy =
-                lifestreamService.TryGetBusy(out var busy)
-                    ? busy
-                    : null;
+            UpdatePendingTravel(now);
 
-            potMapService.Update(
-                now,
-                ClientState.TerritoryType,
-                GetCurrentDatacenter(),
-                playerState.IsLoaded,
-                lifestreamBusy);
-        }
-
-        // Check local activity and instance matching
-        // approximately every two seconds.
-        if (insideHorn &&
-            now - lastMatchCheck >= MatchInterval)
+        if (InsideHorn && now - lastMatchCheck >= MatchInterval)
         {
             lastMatchCheck = now;
-
-            var (localFates, localCEs) =
-                instanceMatchingService.GetLocalActivity();
-
-            var newActivity =
-                instanceMatchingService.CheckForNewActivity(
-                    localFates,
-                    localCEs);
-
-            if (newActivity && !MatchedTrackerId.HasValue)
-            {
-                trackerService.OnNewActivity(now);
-            }
-
-            var foundMatch =
-                instanceMatchingService.TryMatch(
-                    Trackers,
-                    localFates,
-                    localCEs,
-                    GetCurrentDatacenter());
-
-            if (foundMatch)
-            {
-                trackerService.OnMatchFound();
-            }
+            UpdateInstanceMatch(now);
         }
 
-        // Lightweight API refresh scheduling.
-        trackerService.Update(
-            now,
-            insideHorn,
-            MatchedTrackerId.HasValue,
-            mainWindow.IsOpen);
+        trackerService.Update(now, InsideHorn, MatchedTrackerId.HasValue, mainWindow.IsOpen);
     }
 
-    // Cleanup
+    private void UpdatePendingTravel(DateTime now)
+    {
+        bool? lifestreamBusy = lifestreamService.TryGetBusy(out var busy) ? busy : null;
+
+        potMapService.Update(
+            now,
+            ClientState.TerritoryType,
+            GetCurrentDatacenter(),
+            playerState.IsLoaded,
+            lifestreamBusy);
+    }
+
+    private void UpdateInstanceMatch(DateTime now)
+    {
+        var localFates = instanceMatchingService.GetLocalFateIds();
+        var localCEs = instanceMatchingService.GetLocalCEIds();
+
+        // Once we've matched, new activity is expected and shouldn't trigger refetches.
+        if (instanceMatchingService.CheckForNewActivity(localFates, localCEs) && !MatchedTrackerId.HasValue)
+            trackerService.OnNewActivity(now);
+
+        if (instanceMatchingService.TryMatch(Trackers, localFates, localCEs, GetCurrentDatacenter()))
+            trackerService.OnMatchFound();
+    }
+
     public void Dispose()
     {
         if (disposed)
@@ -365,8 +250,8 @@ public sealed class Plugin : IDalamudPlugin
 
         commandManager.RemoveHandler(CommandName);
 
-        pluginInterface.UiBuilder.Draw -= DrawUI;
-        pluginInterface.UiBuilder.OpenMainUi -= OpenMainUI;
+        pluginInterface.UiBuilder.Draw -= windowSystem.Draw;
+        pluginInterface.UiBuilder.OpenMainUi -= OpenTrackerWindow;
         pluginInterface.UiBuilder.OpenConfigUi -= OpenConfigUI;
 
         windowSystem.RemoveAllWindows();

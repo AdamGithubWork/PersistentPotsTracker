@@ -9,8 +9,7 @@ using System.Threading.Tasks;
 
 namespace PersistentPotsTracker.Services;
 
-/// Thrown when the tracker API returns HTTP 429 Too Many Requests.
-
+// RetryAfter is null when the server doesn't say how long to wait.
 public sealed class ApiRateLimitedException : Exception
 {
     public TimeSpan? RetryAfter { get; }
@@ -22,19 +21,18 @@ public sealed class ApiRateLimitedException : Exception
     }
 }
 
-
-/// Handles HTTP requests to the OccultTracker API.
-
 public sealed class TrackerApiClient : IDisposable
 {
-    private const string BaseUrl =
-        "https://infi.ovh/api/OccultTrackerV3";
+    private const string BaseUrl = "https://infi.ovh/api/OccultTrackerV3";
 
     private const long MaxResponseBytes = 8 * 1024 * 1024;
+
+    // The cutoff gets rounded down to this, so requests made close together
+    // share a URL and can be served from the HTTP cache.
     private const long CutoffRoundingSeconds = 60;
 
-    private static readonly TimeSpan MaxDataAge =
-        TimeSpan.FromMinutes(10);
+    // Only ask for trackers updated within this window.
+    private static readonly TimeSpan MaxDataAge = TimeSpan.FromMinutes(10);
 
     private readonly HttpClient httpClient;
 
@@ -52,65 +50,49 @@ public sealed class TrackerApiClient : IDisposable
             MaxResponseContentBufferSize = MaxResponseBytes
         };
 
-        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd(
-            "PersistentPotsTracker/0.1.0");
+        httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("PersistentPotsTracker/0.1.0");
     }
 
-
-    /// Fetches recently updated tracker data for the selected datacenters.
     public async Task<List<TrackerData>> GetTrackersAsync(
         IReadOnlyCollection<int> datacenters,
         CancellationToken cancellationToken = default)
     {
         if (datacenters.Count == 0)
-            return new List<TrackerData>();
+            return new();
 
-        // Fetch trackers updated within approximately the last 10 minutes.
-        // Round the timestamp down to improve shared HTTP cache reuse.
-        var cutoff = DateTimeOffset.UtcNow
-            .Subtract(MaxDataAge)
-            .ToUnixTimeSeconds();
-
+        var cutoff = DateTimeOffset.UtcNow.Subtract(MaxDataAge).ToUnixTimeSeconds();
         cutoff -= cutoff % CutoffRoundingSeconds;
 
-        // Stable ordering keeps equivalent datacenter selections
-        // producing identical URLs.
-        var dcFilter = string.Join(
-            ",",
-            datacenters.Distinct().OrderBy(id => id));
+        // Sorted and deduped so the same selection always builds the same URL
+        // (same cache reasoning as the cutoff).
+        var dcFilter = string.Join(",", datacenters.Distinct().OrderBy(id => id));
+        var url = $"{BaseUrl}?last_update=gte.{cutoff}&datacenter=in.({dcFilter})";
 
-        var url =
-            $"{BaseUrl}?last_update=gte.{cutoff}" +
-            $"&datacenter=in.({dcFilter})";
+        using var response = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
 
-        using var response = await httpClient.GetAsync(
-            url,
-            cancellationToken).ConfigureAwait(false);
-
-        // Respect server rate-limit responses.
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            var retryAfter = response.Headers.RetryAfter;
-            var wait = retryAfter?.Delta;
-
-            if (wait == null &&
-                retryAfter?.Date is DateTimeOffset retryDate)
-            {
-                wait = retryDate - DateTimeOffset.UtcNow;
-            }
-
-            throw new ApiRateLimitedException(wait);
-        }
+            throw new ApiRateLimitedException(GetRetryDelay(response));
 
         response.EnsureSuccessStatusCode();
 
-        return await response.Content.ReadFromJsonAsync<List<TrackerData>>(
-            cancellationToken: cancellationToken).ConfigureAwait(false)
-            ?? new List<TrackerData>();
+        return await response.Content
+            .ReadFromJsonAsync<List<TrackerData>>(cancellationToken: cancellationToken)
+            .ConfigureAwait(false) ?? new();
     }
 
-    public void Dispose()
+    // Retry-After can be a number of seconds or an HTTP date.
+    private static TimeSpan? GetRetryDelay(HttpResponseMessage response)
     {
-        httpClient.Dispose();
+        var retryAfter = response.Headers.RetryAfter;
+
+        if (retryAfter?.Delta is { } delta)
+            return delta;
+
+        if (retryAfter?.Date is { } date)
+            return date - DateTimeOffset.UtcNow;
+
+        return null;
     }
+
+    public void Dispose() => httpClient.Dispose();
 }

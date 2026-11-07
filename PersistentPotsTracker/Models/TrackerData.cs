@@ -1,3 +1,4 @@
+
 using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -36,6 +37,7 @@ public class TrackerData
     private List<PotData>? cachedPots;
     private List<PotData>? cachedFates;
     private List<PotData>? cachedEncounters;
+
     public IReadOnlyList<PotData> GetPots()
         => cachedPots ??= ParseHistory(PotHistoryJson);
 
@@ -48,16 +50,15 @@ public class TrackerData
     private static List<PotData> ParseHistory(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
-            return new List<PotData>();
+            return new();
 
         try
         {
-            return JsonSerializer.Deserialize<List<PotData>>(json)
-                   ?? new List<PotData>();
+            return JsonSerializer.Deserialize<List<PotData>>(json) ?? new();
         }
         catch (JsonException)
         {
-            return new List<PotData>();
+            return new();
         }
     }
 }

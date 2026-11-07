@@ -1,30 +1,29 @@
-
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
 using PersistentPotsTracker.Models;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace PersistentPotsTracker.Services;
 
 public sealed class LifestreamService
 {
+    private static readonly Dictionary<string, string> OccultCommands = new()
+    {
+        ["North Horn"] = "occult",
+        ["South Horn"] = "occult s",
+    };
+
     private readonly ICallGateSubscriber<string, object> executeCommand;
     private readonly ICallGateSubscriber<bool> isBusy;
     private readonly IPluginLog log;
 
-    public LifestreamService(
-        IDalamudPluginInterface pluginInterface,
-        IPluginLog log)
+    public LifestreamService(IDalamudPluginInterface pluginInterface, IPluginLog log)
     {
-        executeCommand =
-            pluginInterface.GetIpcSubscriber<string, object>(
-                "Lifestream.ExecuteCommand");
-
-        isBusy =
-            pluginInterface.GetIpcSubscriber<bool>(
-                "Lifestream.IsBusy");
-
+        executeCommand = pluginInterface.GetIpcSubscriber<string, object>("Lifestream.ExecuteCommand");
+        isBusy = pluginInterface.GetIpcSubscriber<bool>("Lifestream.IsBusy");
         this.log = log;
     }
 
@@ -32,7 +31,6 @@ public sealed class LifestreamService
     {
         busy = false;
 
-        // Avoid invoking IPC when Lifestream is unavailable.
         if (!isBusy.HasFunction)
             return false;
 
@@ -41,75 +39,47 @@ public sealed class LifestreamService
             busy = isBusy.InvokeFunc();
             return true;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            // This can be polled frequently while traveling.
-            // Avoid filling the log with repeated IPC errors.
-            busy = false;
+            log.Debug(ex, "Lifestream busy check failed.");
             return false;
         }
     }
 
-    public bool TryTravel(
-        PotTableRow row,
-        string currentDatacenter,
-        string homeDatacenter,
-        string homeWorld,
-        out string message)
+    public bool TryTravel(PotTableRow row, string currentDatacenter, string homeDatacenter, string homeWorld, out string message)
     {
-        var occultCommand = row.Zone switch
+        if (!OccultCommands.TryGetValue(row.Zone, out var occultCommand))
         {
-            "North Horn" => "occult",
-            "South Horn" => "occult s",
-            _ => string.Empty
-        };
-
-        if (occultCommand.Length == 0)
-        {
-            message =
-                "The selected tracker has no known Horn destination.";
+            message = "Unknown Horn destination.";
             return false;
         }
 
-        // Only supported datacenter names can enter Lifestream commands.
-        if (row.Datacenter is not
-            ("Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia"))
+        if (row.Datacenter is not ("Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia"))
         {
-            message =
-                "The selected tracker has an unsupported datacenter.";
+            message = "Unsupported datacenter.";
             return false;
         }
 
         if (!isBusy.HasFunction || !executeCommand.HasAction)
         {
-            message =
-                "Could not reach Lifestream. " +
-                "Check that it is installed and enabled.";
+            message = "Lifestream isn't available. Make sure it's enabled.";
             return false;
         }
 
+        // Same DC: run the occult command from wherever we are.
+        // Home DC: go through the home world so we don't end up on a random one.
+        // Other DC: give Lifestream the DC and let it pick the world.
         string command;
 
-        if (string.Equals(
-                row.Datacenter,
-                currentDatacenter,
-                StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(row.Datacenter, currentDatacenter, StringComparison.OrdinalIgnoreCase))
         {
-            // Already on the destination datacenter.
             command = occultCommand;
         }
-        else if (string.Equals(
-                     row.Datacenter,
-                     homeDatacenter,
-                     StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(row.Datacenter, homeDatacenter, StringComparison.OrdinalIgnoreCase))
         {
-            // Return directly to the player's home world.
-            // Do not silently select another world if the name is invalid.
-            if (!IsPlainWorldName(homeWorld))
+            if (!IsValidWorldName(homeWorld))
             {
-                message =
-                    "Could not determine a valid home world " +
-                    "for Lifestream travel.";
+                message = "No valid home world set.";
                 return false;
             }
 
@@ -117,60 +87,39 @@ public sealed class LifestreamService
         }
         else
         {
-            // Travel to another datacenter.
             command = $"{row.Datacenter},{occultCommand}";
+        }
+
+        if (!TryGetBusy(out var busy))
+        {
+            message = "Couldn't check whether Lifestream is busy.";
+            return false;
+        }
+
+        if (busy)
+        {
+            message = "Lifestream is busy.";
+            return false;
         }
 
         try
         {
-            if (isBusy.InvokeFunc())
-            {
-                message =
-                    "Lifestream is already busy. Try again later.";
-                return false;
-            }
-
             executeCommand.InvokeAction(command);
-
-            log.Information(
-                $"Lifestream travel requested: {command}");
-
-            message =
-                $"Sent travel request for {row.Datacenter} / {row.Zone}. " +
-                "Check Lifestream for progress.";
-
-            return true;
         }
         catch (Exception ex)
         {
-            log.Warning(
-                ex,
-                "Could not send travel request to Lifestream.");
-
-            message =
-                "Could not reach Lifestream. " +
-                "Check that it is installed and enabled.";
-
+            log.Warning(ex, $"Lifestream rejected command '{command}'.");
+            message = "Lifestream didn't accept the travel command.";
             return false;
         }
-    }
 
-    // FFXIV world names use ASCII letters.
-    // Reject delimiters or unexpected characters in IPC commands.
-    private static bool IsPlainWorldName(string name)
-    {
-        if (string.IsNullOrWhiteSpace(name))
-            return false;
-
-        foreach (var c in name)
-        {
-            if (!((c >= 'A' && c <= 'Z') ||
-                  (c >= 'a' && c <= 'z')))
-            {
-                return false;
-            }
-        }
-
+        log.Information($"Sent to Lifestream: {command}");
+        message = $"Travelling to {row.Zone} ({row.Datacenter})";
         return true;
     }
+
+    // The world name goes straight into Lifestream's command string, so keep it
+    // to letters. A comma or space would change what gets executed.
+    private static bool IsValidWorldName(string name) =>
+        !string.IsNullOrWhiteSpace(name) && name.All(char.IsAsciiLetter);
 }
