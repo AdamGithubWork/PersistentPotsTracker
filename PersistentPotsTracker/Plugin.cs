@@ -1,4 +1,3 @@
-
 using Dalamud.Game.Command;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
@@ -19,25 +18,32 @@ public sealed class Plugin : IDalamudPlugin
 
     private static readonly TimeSpan MatchInterval =
         TimeSpan.FromSeconds(2);
+
+    // Dalamud services
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ICommandManager commandManager;
     private readonly IFramework framework;
     private readonly IDataManager dataManager;
     private readonly IPlayerState playerState;
+
     public IClientState ClientState { get; }
     public Configuration Configuration { get; }
 
+    // Plugin services
+    private readonly TrackerService trackerService;
+    private readonly InstanceMatchingService instanceMatchingService;
+    private readonly LifestreamService lifestreamService;
+    private readonly PotMapService potMapService;
+
+    // Windows
     private readonly WindowSystem windowSystem =
         new("PersistentPotsTracker");
 
     private readonly MainWindow mainWindow;
     private readonly ConfigWindow configWindow;
     private readonly PotOverlayWindow potOverlayWindow;
-    private readonly PotMapService potMapService;
-    private readonly TrackerService trackerService;
-    private readonly InstanceMatchingService instanceMatchingService;
-    private readonly LifestreamService lifestreamService;
 
+    // Tracker data exposed to windows
     public List<TrackerData> Trackers => trackerService.Trackers;
     public List<PotTableRow> PotRows => trackerService.PotRows;
     public bool IsRefreshing => trackerService.IsRefreshing;
@@ -47,6 +53,10 @@ public sealed class Plugin : IDalamudPlugin
         instanceMatchingService.MatchedTrackerId;
 
     public string? LastTravelMessage { get; private set; }
+
+    // State
+    private bool insideHorn;
+    public bool InsideHorn => insideHorn;
 
     private DateTime lastMatchCheck = DateTime.MinValue;
     private bool disposed;
@@ -70,12 +80,14 @@ public sealed class Plugin : IDalamudPlugin
 
         ClientState = clientState;
 
+        // Configuration
         Configuration =
             pluginInterface.GetPluginConfig() as Configuration
             ?? new Configuration();
 
         Configuration.Initialize(pluginInterface);
 
+        // Services
         instanceMatchingService =
             new InstanceMatchingService(fateTable, pluginLog);
 
@@ -88,17 +100,21 @@ public sealed class Plugin : IDalamudPlugin
             pluginInterface,
             pluginLog);
 
+        potMapService = new PotMapService(
+            gameGui,
+            dataManager,
+            pluginLog);
+
+        // Windows
         mainWindow = new MainWindow(this);
         configWindow = new ConfigWindow(this);
         potOverlayWindow = new PotOverlayWindow(this);
-        potMapService = new PotMapService(
-    gameGui,
-    dataManager,
-    pluginLog);
+
         windowSystem.AddWindow(mainWindow);
         windowSystem.AddWindow(configWindow);
         windowSystem.AddWindow(potOverlayWindow);
 
+        // Command
         commandManager.AddHandler(
             CommandName,
             new CommandInfo(OnCommand)
@@ -106,15 +122,19 @@ public sealed class Plugin : IDalamudPlugin
                 HelpMessage = "Open Persistent Pots Tracker."
             });
 
+        // UI events
         pluginInterface.UiBuilder.Draw += DrawUI;
         pluginInterface.UiBuilder.OpenMainUi += OpenMainUI;
         pluginInterface.UiBuilder.OpenConfigUi += OpenConfigUI;
 
+        // Game events
         framework.Update += OnFrameworkUpdate;
         ClientState.TerritoryChanged += OnTerritoryChanged;
 
         // Handle loading while already inside a Horn.
-        if (IsHornTerritory(ClientState.TerritoryType))
+        insideHorn = IsHornTerritory(ClientState.TerritoryType);
+
+        if (insideHorn)
         {
             trackerService.OnTerritoryChanged(true);
         }
@@ -145,6 +165,20 @@ public sealed class Plugin : IDalamudPlugin
         mainWindow.IsOpen = true;
     }
 
+    // Datacenter information
+    private static string GetDatacenterName(uint id)
+    {
+        return id switch
+        {
+            4 => "Aether",
+            5 => "Primal",
+            8 => "Crystal",
+            9 => "Materia",
+            11 => "Dynamis",
+            _ => "Unknown"
+        };
+    }
+
     public string GetCurrentDatacenter()
     {
         if (!playerState.IsLoaded)
@@ -155,43 +189,34 @@ public sealed class Plugin : IDalamudPlugin
         if (!world.IsValid)
             return "Unknown";
 
-        uint datacenterId = world.Value.DataCenter.RowId;
-
-        return datacenterId switch
-        {
-            4 => "Aether",
-            5 => "Primal",
-            8 => "Crystal",
-            9 => "Materia",
-            11 => "Dynamis",
-            _ => "Unknown"
-        };
+        return GetDatacenterName(
+            world.Value.DataCenter.RowId);
     }
+
     public string GetHomeWorld()
     {
-        if (!playerState.IsLoaded || !playerState.HomeWorld.IsValid)
+        if (!playerState.IsLoaded ||
+            !playerState.HomeWorld.IsValid)
+        {
             return "";
+        }
 
         return playerState.HomeWorld.Value.Name.ToString();
     }
 
     public string GetHomeDatacenter()
     {
-        if (!playerState.IsLoaded || !playerState.HomeWorld.IsValid)
-            return "Unknown";
-
-        uint id = playerState.HomeWorld.Value.DataCenter.RowId;
-
-        return id switch
+        if (!playerState.IsLoaded ||
+            !playerState.HomeWorld.IsValid)
         {
-            4 => "Aether",
-            5 => "Primal",
-            8 => "Crystal",
-            11 => "Dynamis",
-            9 => "Materia",
-            _ => "Unknown"
-        };
+            return "Unknown";
+        }
+
+        return GetDatacenterName(
+            playerState.HomeWorld.Value.DataCenter.RowId);
     }
+
+    // Territory detection
     private bool IsHornTerritory(uint territoryId)
     {
         var sheet = dataManager.GetExcelSheet<TerritoryType>();
@@ -212,19 +237,16 @@ public sealed class Plugin : IDalamudPlugin
                    StringComparison.OrdinalIgnoreCase);
     }
 
-    private bool IsInsideHorn()
-    {
-        return IsHornTerritory(ClientState.TerritoryType);
-    }
-
     private void OnTerritoryChanged(uint territoryId)
     {
+        insideHorn = IsHornTerritory(territoryId);
+
         instanceMatchingService.Reset();
 
-        trackerService.OnTerritoryChanged(
-            IsHornTerritory(territoryId));
+        trackerService.OnTerritoryChanged(insideHorn);
     }
 
+    // Tracker management
     public void DatacenterSelectionChanged()
     {
         trackerService.DatacenterSelectionChanged();
@@ -235,6 +257,7 @@ public sealed class Plugin : IDalamudPlugin
         return trackerService.RefreshAsync();
     }
 
+    // Travel and map integration
     public void TravelToTracker(PotTableRow row)
     {
         bool requested = lifestreamService.TryTravel(
@@ -253,6 +276,7 @@ public sealed class Plugin : IDalamudPlugin
                 ClientState.TerritoryType);
         }
     }
+
     public void ShowPotOnMap(PotTableRow row)
     {
         bool opened = potMapService.ShowOnMap(row);
@@ -262,6 +286,7 @@ public sealed class Plugin : IDalamudPlugin
             : "Could not open the predicted pot location.";
     }
 
+    // Framework updates
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (disposed)
@@ -269,7 +294,7 @@ public sealed class Plugin : IDalamudPlugin
 
         DateTime now = DateTime.UtcNow;
 
-        // Only check Lifestream while waiting for travel to finish.
+        // Only check Lifestream while travel is pending.
         if (potMapService.HasPendingTravel)
         {
             bool? lifestreamBusy =
@@ -285,9 +310,8 @@ public sealed class Plugin : IDalamudPlugin
                 lifestreamBusy);
         }
 
-        bool insideHorn = IsInsideHorn();
-
-        // Check local activity and match instances every 2 seconds.
+        // Check local activity and instance matching
+        // approximately every two seconds.
         if (insideHorn &&
             now - lastMatchCheck >= MatchInterval)
         {
@@ -319,7 +343,7 @@ public sealed class Plugin : IDalamudPlugin
             }
         }
 
-        // Lightweight refresh scheduling.
+        // Lightweight API refresh scheduling.
         trackerService.Update(
             now,
             insideHorn,
@@ -327,7 +351,7 @@ public sealed class Plugin : IDalamudPlugin
             mainWindow.IsOpen);
     }
 
-
+    // Cleanup
     public void Dispose()
     {
         if (disposed)
