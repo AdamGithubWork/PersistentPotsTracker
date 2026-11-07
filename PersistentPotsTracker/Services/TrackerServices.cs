@@ -1,7 +1,10 @@
+
 using Dalamud.Plugin.Services;
 using PersistentPotsTracker.Models;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
@@ -9,35 +12,51 @@ using System.Threading.Tasks;
 
 namespace PersistentPotsTracker.Services;
 
-// Owns tracker data, its refresh lifecycle, and the triggers for refreshing.
+// Owns tracker data, refresh scheduling, and the API request lifecycle.
 public sealed class TrackerService : IDisposable
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(45);
     private static readonly TimeSpan MatchRetryDelay = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan MinRequestInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan BaseBackoff = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan RateLimitBackoff = TimeSpan.FromMinutes(5);
 
     private readonly Configuration configuration;
     private readonly IPluginLog pluginLog;
     private readonly PotPredictionService potPredictionService;
     private readonly TrackerApiClient apiClient = new();
     private readonly CancellationTokenSource apiCancellation = new();
+    private readonly ConcurrentQueue<RefreshResult> completedRequests = new();
 
     public List<TrackerData> Trackers { get; private set; } = new();
     public List<PotTableRow> PotRows { get; private set; } = new();
     public string? ApiError { get; private set; }
-
-    // The refresh continuation can resume on a thread-pool thread (Dalamud's framework
-    // thread has no synchronization context), so flags shared with Update() are volatile.
-    private volatile bool isRefreshing;
     public bool IsRefreshing => isRefreshing;
 
     private DateTime lastRefresh = DateTime.MinValue;
-    private bool wasWindowOpen;
-    private volatile bool refreshPending;
-    private int selectionVersion;
-    private int territoryVersion;
+    private DateTime nextAllowedRequest = DateTime.MinValue;
     private DateTime? entryFollowupAt;
     private DateTime? activityRetryAt;
-    private volatile bool disposed;
+    private int consecutiveFailures;
+    private int selectionVersion;
+    private int territoryVersion;
+    private bool refreshPending;
+    private bool wasWindowOpen;
+    private bool isRefreshing;
+    private bool disposed;
+    private Task? activeRequest;
+
+    // Except for completedRequests, state belongs to the calling (Dalamud) thread.
+    // The HTTP continuation only enqueues a result; Update() applies it.
+    private sealed record RefreshResult(
+        int SelectionVersion,
+        int TerritoryVersion,
+        List<TrackerData>? Trackers,
+        string? Error,
+        Exception? Exception,
+        bool RateLimited,
+        bool Cancelled);
 
     public TrackerService(
         Configuration configuration,
@@ -79,11 +98,18 @@ public sealed class TrackerService : IDisposable
         refreshPending = true;
     }
 
-    // Called from the Dalamud framework update, without owning the framework event.
-    public void Update(DateTime now, bool insideHorn, bool matchFound, bool isWindowOpen)
+    // Called by Plugin.OnFrameworkUpdate.
+    // Applies completed API results on the Dalamud thread.
+    public void Update(
+        DateTime now,
+        bool insideHorn,
+        bool matchFound,
+        bool isWindowOpen)
     {
         if (disposed)
             return;
+
+        ApplyCompletedRequests(now);
 
         if (insideHorn && !matchFound)
         {
@@ -102,28 +128,37 @@ public sealed class TrackerService : IDisposable
 
         if (isWindowOpen && !wasWindowOpen)
             lastRefresh = DateTime.MinValue;
+
         wasWindowOpen = isWindowOpen;
 
         if (isWindowOpen && now - lastRefresh >= RefreshInterval)
             refreshPending = true;
 
-        // Collapse multiple triggers into one outstanding request at a time.
-        if (refreshPending && !isRefreshing)
-        {
-            refreshPending = false;
+        if (refreshPending && !isRefreshing && now >= nextAllowedRequest)
             _ = RefreshAsync();
-        }
     }
 
-    public async Task RefreshAsync()
+    // Call from the Dalamud/UI thread, like the other public
+    // state-changing methods.
+    // The returned task completes when the response is queued.
+    // Update applies it on the next framework update.
+    public Task RefreshAsync()
     {
         if (disposed)
-            return;
+            return Task.CompletedTask;
 
         if (isRefreshing)
         {
             refreshPending = true;
-            return;
+            return activeRequest ?? Task.CompletedTask;
+        }
+
+        DateTime now = DateTime.UtcNow;
+
+        if (now < nextAllowedRequest)
+        {
+            refreshPending = true;
+            return Task.CompletedTask;
         }
 
         refreshPending = false;
@@ -150,101 +185,211 @@ public sealed class TrackerService : IDisposable
             Trackers = new();
             PotRows = new();
             ApiError = null;
-            lastRefresh = DateTime.UtcNow;
-            return;
+            lastRefresh = now;
+            return Task.CompletedTask;
         }
 
         isRefreshing = true;
-        int requestVersion = selectionVersion;
-        int requestTerritoryVersion = territoryVersion;
+        nextAllowedRequest = now + MinRequestInterval;
+
+        activeRequest = FetchAsync(
+            datacenters,
+            selectionVersion,
+            territoryVersion);
+
+        return activeRequest;
+    }
+
+    // No UI-facing state is modified after the await.
+    private async Task FetchAsync(
+        List<int> datacenters,
+        int selection,
+        int territory)
+    {
+        RefreshResult result;
 
         try
         {
-            var results =
-                await apiClient.GetTrackersAsync(
-                    datacenters, apiCancellation.Token);
+            var trackers = await apiClient.GetTrackersAsync(
+                datacenters,
+                apiCancellation.Token).ConfigureAwait(false);
 
-            if (disposed || requestVersion != selectionVersion ||
-                requestTerritoryVersion != territoryVersion)
-                return;
-
-            // Preserve usable data if the API returns an empty result.
-            if (results.Count > 0)
-            {
-                Trackers = results;
-                PotRows = potPredictionService.BuildPotRows(results);
-                ApiError = null;
-            }
-            else
-            {
-                ApiError = "The tracker API returned no instances.";
-                pluginLog.Warning(ApiError);
-            }
+            result = new(
+                selection,
+                territory,
+                trackers,
+                null,
+                null,
+                false,
+                false);
         }
         catch (OperationCanceledException)
             when (apiCancellation.IsCancellationRequested)
         {
-            // Normal cancellation during plugin shutdown.
+            result = new(
+                selection,
+                territory,
+                null,
+                null,
+                null,
+                false,
+                true);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
-            if (IsCurrent(requestVersion, requestTerritoryVersion))
-            {
-                ApiError = "Tracker API request timed out.";
-                pluginLog.Warning(ApiError);
-            }
+            result = new(
+                selection,
+                territory,
+                null,
+                "Tracker API request timed out.",
+                ex,
+                false,
+                false);
+        }
+        catch (HttpRequestException ex)
+            when (ex.StatusCode == HttpStatusCode.TooManyRequests)
+        {
+            result = new(
+                selection,
+                territory,
+                null,
+                "Tracker API rate limit reached. Retrying later.",
+                ex,
+                true,
+                false);
         }
         catch (HttpRequestException ex)
         {
-            if (IsCurrent(requestVersion, requestTerritoryVersion))
-            {
-                ApiError = ex.Message;
-                pluginLog.Warning(ex, "Tracker API request failed.");
-            }
+            result = new(
+                selection,
+                territory,
+                null,
+                ex.Message,
+                ex,
+                false,
+                false);
         }
         catch (JsonException ex)
         {
-            if (IsCurrent(requestVersion, requestTerritoryVersion))
-            {
-                ApiError = "Tracker API returned an unexpected response.";
-                pluginLog.Warning(ex, "Tracker API response could not be parsed.");
-            }
+            result = new(
+                selection,
+                territory,
+                null,
+                "Tracker API returned an unexpected response.",
+                ex,
+                false,
+                false);
         }
         catch (Exception ex)
         {
-            if (IsCurrent(requestVersion, requestTerritoryVersion))
-            {
-                ApiError = ex.Message;
-                pluginLog.Error(ex, "Failed to refresh trackers.");
-            }
+            result = new(
+                selection,
+                territory,
+                null,
+                ex.Message,
+                ex,
+                false,
+                false);
         }
-        finally
+
+        completedRequests.Enqueue(result);
+    }
+
+    private void ApplyCompletedRequests(DateTime now)
+    {
+        while (completedRequests.TryDequeue(out var result))
         {
-            if (disposed)
+            bool current =
+                result.SelectionVersion == selectionVersion &&
+                result.TerritoryVersion == territoryVersion;
+
+            bool success = result.Trackers is { Count: > 0 };
+
+            if (result.Cancelled)
             {
-                isRefreshing = false;
-                apiCancellation.Dispose();
+                // Cancellation is expected during shutdown.
+            }
+            else if (success)
+            {
+                consecutiveFailures = 0;
+
+                if (current)
+                {
+                    try
+                    {
+                        var rows =
+                            potPredictionService.BuildPotRows(
+                                result.Trackers!);
+
+                        Trackers = result.Trackers!;
+                        PotRows = rows;
+                        ApiError = null;
+                    }
+                    catch (Exception ex)
+                    {
+                        RegisterFailure(now, false);
+                        ApiError = "Could not process tracker API data.";
+
+                        pluginLog.Error(
+                            ex,
+                            "Failed to build pot predictions.");
+                    }
+                }
             }
             else
             {
-                if (requestVersion == selectionVersion &&
-                    requestTerritoryVersion == territoryVersion)
-                    lastRefresh = DateTime.UtcNow;
-                else if (requestVersion != selectionVersion)
-                    refreshPending = true;
+                RegisterFailure(now, result.RateLimited);
 
-                // Clear the flag last. Clearing it first let Update() see
-                // "not refreshing" with a stale lastRefresh and start a second refresh.
-                isRefreshing = false;
+                if (current)
+                {
+                    ApiError = result.Error ??
+                        "The tracker API returned no instances.";
+
+                    if (result.Exception != null)
+                    {
+                        pluginLog.Warning(
+                            result.Exception,
+                            "Tracker API refresh failed.");
+                    }
+                    else
+                    {
+                        pluginLog.Warning(ApiError);
+                    }
+                }
             }
+
+            if (current)
+            {
+                lastRefresh = now;
+            }
+            else if (result.SelectionVersion != selectionVersion)
+            {
+                refreshPending = true;
+            }
+
+            // Mark complete after publishing results and timestamps.
+            isRefreshing = false;
+            activeRequest = null;
         }
     }
 
-    private bool IsCurrent(int requestVersion, int requestTerritoryVersion)
+    private void RegisterFailure(DateTime now, bool rateLimited)
     {
-        return !disposed &&
-               requestVersion == selectionVersion &&
-               requestTerritoryVersion == territoryVersion;
+        consecutiveFailures++;
+
+        double seconds = Math.Min(
+            BaseBackoff.TotalSeconds *
+                Math.Pow(2, Math.Min(consecutiveFailures - 1, 10)),
+            MaxBackoff.TotalSeconds);
+
+        var delay = rateLimited
+            ? RateLimitBackoff
+            : TimeSpan.FromSeconds(seconds);
+
+        DateTime retryAt = now + delay;
+
+        if (retryAt > nextAllowedRequest)
+            nextAllowedRequest = retryAt;
     }
 
     public void Dispose()
@@ -253,11 +398,23 @@ public sealed class TrackerService : IDisposable
             return;
 
         disposed = true;
+
         apiCancellation.Cancel();
         apiClient.Dispose();
 
-        // An in-flight request releases the token source in its finally block.
-        if (!isRefreshing)
+        // Do not dispose a CancellationTokenSource while
+        // an HTTP operation is using it.
+        if (activeRequest is { IsCompleted: false } request)
+        {
+            _ = request.ContinueWith(
+                _ => apiCancellation.Dispose(),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+        else
+        {
             apiCancellation.Dispose();
+        }
     }
 }
