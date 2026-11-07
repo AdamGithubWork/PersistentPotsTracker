@@ -15,6 +15,7 @@ namespace PersistentPotsTracker;
 public sealed class Plugin : IDalamudPlugin
 {
     private const string CommandName = "/pots";
+    private const string SettingsCommandName = "/potssettings";
 
     // The local FATE/CE scan and match attempt run on this interval rather
     // than every frame.
@@ -94,6 +95,11 @@ public sealed class Plugin : IDalamudPlugin
             HelpMessage = "Open Persistent Pots Tracker."
         });
 
+        commandManager.AddHandler(SettingsCommandName, new CommandInfo(OnSettingsCommand)
+        {
+            HelpMessage = "Open the Persistent Pots Tracker settings."
+        });
+
         pluginInterface.UiBuilder.Draw += windowSystem.Draw;
         pluginInterface.UiBuilder.OpenMainUi += OpenTrackerWindow;
         pluginInterface.UiBuilder.OpenConfigUi += OpenConfigUI;
@@ -139,6 +145,12 @@ public sealed class Plugin : IDalamudPlugin
 
     public void TravelToTracker(PotTableRow row)
     {
+        if (!Configuration.UseLifestream)
+        {
+            LastTravelMessage = "Lifestream travel is turned off in settings.";
+            return;
+        }
+
         var requested = lifestreamService.TryTravel(
             row,
             GetCurrentDatacenter(),
@@ -162,6 +174,8 @@ public sealed class Plugin : IDalamudPlugin
     }
 
     private void OnCommand(string command, string args) => mainWindow.Toggle();
+
+    private void OnSettingsCommand(string command, string args) => configWindow.Toggle();
 
     private void OpenConfigUI() => configWindow.IsOpen = true;
 
@@ -250,6 +264,7 @@ public sealed class Plugin : IDalamudPlugin
         ClientState.TerritoryChanged -= OnTerritoryChanged;
 
         commandManager.RemoveHandler(CommandName);
+        commandManager.RemoveHandler(SettingsCommandName);
 
         pluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         pluginInterface.UiBuilder.OpenMainUi -= OpenTrackerWindow;

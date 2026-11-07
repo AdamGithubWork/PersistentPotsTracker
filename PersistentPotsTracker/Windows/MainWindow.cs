@@ -52,7 +52,8 @@ public class MainWindow : Window
     private int? selectedTrackerId;
 
     // Checked once per frame. Selecting rows and "Show on Map" don't need
-    // Lifestream, so only the travel actions look at this.
+    // Lifestream, so only the travel actions look at these.
+    private bool lifestreamEnabled;
     private bool lifestreamAvailable;
 
     public MainWindow(Plugin plugin)
@@ -66,6 +67,7 @@ public class MainWindow : Window
 
     public override void Draw()
     {
+        lifestreamEnabled = plugin.Configuration.UseLifestream;
         lifestreamAvailable = plugin.IsLifestreamAvailable;
 
         DrawDatacenterFilters();
@@ -148,7 +150,7 @@ public class MainWindow : Window
             ImGui.TextColored(SuccessColor, "Current instance identified");
         }
 
-        if (!lifestreamAvailable)
+        if (lifestreamEnabled && !lifestreamAvailable)
         {
             ImGui.SameLine();
             ImGui.TextColored(WarningColor, "Lifestream not found: travel is disabled");
@@ -257,7 +259,7 @@ public class MainWindow : Window
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
 
-        if (!isSelected && !isCurrentInstance)
+        if (plugin.Configuration.ColorCodeDatacenters && !isSelected && !isCurrentInstance)
         {
             var color = DatacenterRowColors.GetValueOrDefault(row.Datacenter);
             ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ImGui.ColorConvertFloat4ToU32(color));
@@ -321,7 +323,7 @@ public class MainWindow : Window
         // Double right-click travels straight away, same or different datacenter.
         if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Right))
         {
-            if (lifestreamAvailable)
+            if (lifestreamEnabled && lifestreamAvailable)
                 plugin.TravelToTracker(row);
 
             return;
@@ -356,7 +358,7 @@ public class MainWindow : Window
         ImGui.TextUnformatted($"{row.Datacenter} - {row.Zone}");
 
         var knownDestination = CanTravel(row);
-        var canTravel = lifestreamAvailable && knownDestination;
+        var canTravel = lifestreamEnabled && lifestreamAvailable && knownDestination;
         var hasPrediction = row.NextPot is "S" or "N";
 
         // Three buttons, aligned toward the right.
@@ -397,7 +399,11 @@ public class MainWindow : Window
         // Disabled items only report hover with AllowWhenDisabled.
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
         {
-            if (!lifestreamAvailable)
+            if (!lifestreamEnabled)
+            {
+                ImGui.SetTooltip("Travel is turned off. Tick Use Lifestream in settings to enable it.");
+            }
+            else if (!lifestreamAvailable)
             {
                 ImGui.SetTooltip("Travel needs the Lifestream plugin. Install and enable it to use this.");
             }

@@ -31,6 +31,10 @@ public class PotOverlayWindow : Window
         RespectCloseHotkey = false;
     }
 
+    // The window stays "open" either way; this just skips drawing it when the
+    // setting is off.
+    public override bool DrawConditions() => plugin.Configuration.ShowPotOverlay;
+
     public override void Draw()
     {
         var datacenter = plugin.GetCurrentDatacenter();

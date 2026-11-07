@@ -14,7 +14,9 @@ public class Configuration : IPluginConfiguration
     public bool ShowCrystal { get; set; } = true;
     public bool ShowDynamis { get; set; } = true;
     public bool ShowMateria { get; set; } = true;
-    public bool IsConfigWindowMovable { get; set; } = true;
+    public bool ShowPotOverlay { get; set; } = true;
+    public bool UseLifestream { get; set; } = true;
+    public bool ColorCodeDatacenters { get; set; } = true;
 
     [NonSerialized]
     private IDalamudPluginInterface? pluginInterface;

@@ -17,25 +17,32 @@ public class ConfigWindow : Window
         SizeCondition = ImGuiCond.FirstUseEver;
     }
 
-    // Flags have to be set before the window begins, so a change to the
-    // checkbox applies on the same frame.
-    public override void PreDraw()
-    {
-        Flags = plugin.Configuration.IsConfigWindowMovable
-            ? ImGuiWindowFlags.None
-            : ImGuiWindowFlags.NoMove;
-    }
-
     public override void Draw()
     {
         ImGui.Text("Persistent Pots Tracker Settings");
         ImGui.Separator();
 
-        var movable = plugin.Configuration.IsConfigWindowMovable;
+        var showOverlay = plugin.Configuration.ShowPotOverlay;
 
-        if (ImGui.Checkbox("Allow settings window movement", ref movable))
+        if (ImGui.Checkbox("Show timer overlay", ref showOverlay))
         {
-            plugin.Configuration.IsConfigWindowMovable = movable;
+            plugin.Configuration.ShowPotOverlay = showOverlay;
+            plugin.Configuration.Save();
+        }
+
+        var useLifestream = plugin.Configuration.UseLifestream;
+
+        if (ImGui.Checkbox("Use Lifestream", ref useLifestream))
+        {
+            plugin.Configuration.UseLifestream = useLifestream;
+            plugin.Configuration.Save();
+        }
+
+        var colorCode = plugin.Configuration.ColorCodeDatacenters;
+
+        if (ImGui.Checkbox("Color-code datacenters", ref colorCode))
+        {
+            plugin.Configuration.ColorCodeDatacenters = colorCode;
             plugin.Configuration.Save();
         }
 
