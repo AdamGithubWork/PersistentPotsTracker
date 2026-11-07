@@ -15,8 +15,7 @@
       "pots",
       "tracker"
     ],
-    "IconUrl": "https://raw.githubusercontent.com/AdamGithubWork/PersistentPotsTracker/master/PersistentPotsTracker/images/icon.png"
-    "IsHide": false,
+    "IconUrl": "https://raw.githubusercontent.com/AdamGithubWork/PersistentPotsTracker/master/PersistentPotsTracker/images/icon.png",
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/AdamGithubWork/PersistentPotsTracker/releases/download/v0.0.0.1/latest.zip",
     "DownloadLinkUpdate": "https://github.com/AdamGithubWork/PersistentPotsTracker/releases/download/v0.0.0.1/latest.zip"
