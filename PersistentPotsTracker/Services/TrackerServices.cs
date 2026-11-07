@@ -24,6 +24,10 @@ public sealed class TrackerService : IDisposable
     // Floor between any two requests, however they were triggered.
     private static readonly TimeSpan MinRequestInterval = TimeSpan.FromSeconds(5);
 
+    // Short wait after a datacenter checkbox change, so ticking several boxes
+    // in a row sends one request instead of one each.
+    private static readonly TimeSpan SelectionDebounce = TimeSpan.FromMilliseconds(750);
+
     private static readonly TimeSpan BaseBackoff = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan RateLimitBackoff = TimeSpan.FromMinutes(5);
@@ -101,6 +105,11 @@ public sealed class TrackerService : IDisposable
         ClearData();
         lastRefresh = DateTime.MinValue;
         refreshPending = true;
+
+        // A new selection skips the normal request floor, but not a failure
+        // backoff: after errors or a rate limit we still wait it out.
+        if (consecutiveFailures == 0)
+            nextAllowedRequest = DateTime.UtcNow + SelectionDebounce;
     }
 
     // Called by Plugin.OnFrameworkUpdate. Applies completed API results on the
