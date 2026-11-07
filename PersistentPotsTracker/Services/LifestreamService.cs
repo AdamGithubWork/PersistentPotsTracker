@@ -7,9 +7,6 @@ using System;
 
 namespace PersistentPotsTracker.Services;
 
-/// <summary>
-/// Optional integration with Lifestream through Dalamud IPC.
-/// </summary>
 public sealed class LifestreamService
 {
     private readonly ICallGateSubscriber<string, object> executeCommand;
@@ -60,7 +57,7 @@ public sealed class LifestreamService
         string homeWorld,
         out string message)
     {
-        string occultCommand = row.Zone switch
+        var occultCommand = row.Zone switch
         {
             "North Horn" => "occult",
             "South Horn" => "occult s",
@@ -165,7 +162,7 @@ public sealed class LifestreamService
         if (string.IsNullOrWhiteSpace(name))
             return false;
 
-        foreach (char c in name)
+        foreach (var c in name)
         {
             if (!((c >= 'A' && c <= 'Z') ||
                   (c >= 'a' && c <= 'z')))

@@ -1,10 +1,10 @@
+using Dalamud.Bindings.ImGui;
+using Dalamud.Interface.Windowing;
+using PersistentPotsTracker.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using Dalamud.Bindings.ImGui;
-using Dalamud.Interface.Windowing;
-using PersistentPotsTracker.Models;
 namespace PersistentPotsTracker.Windows;
 
 public class MainWindow : Window
@@ -69,20 +69,12 @@ public class MainWindow : Window
         ImGui.Separator();
         DrawRefreshControls();
         ImGui.Separator();
-        if (!string.IsNullOrEmpty(plugin.LastTravelMessage))
-        {
-            // Unformatted so the text is never interpreted as a format string.
-            ImGui.PushTextWrapPos(0f);
-            ImGui.TextUnformatted(plugin.LastTravelMessage);
-            ImGui.PopTextWrapPos();
-            ImGui.Separator();
-        }
         // Look up the selected row once per frame. Clear the selection
         // if its tracker is no longer available.
         PotTableRow? selectedRow = null;
         if (selectedTrackerId.HasValue)
         {
-            int id = selectedTrackerId.Value;
+            var id = selectedTrackerId.Value;
             selectedRow = plugin.PotRows.FirstOrDefault(r => r.TrackerId == id);
             if (selectedRow == null)
                 selectedTrackerId = null;
@@ -94,12 +86,12 @@ public class MainWindow : Window
     private void DrawDatacenterFilters()
     {
         ImGui.Text("Datacenters");
-        bool aether = plugin.Configuration.ShowAether;
-        bool primal = plugin.Configuration.ShowPrimal;
-        bool crystal = plugin.Configuration.ShowCrystal;
-        bool dynamis = plugin.Configuration.ShowDynamis;
-        bool materia = plugin.Configuration.ShowMateria;
-        bool changed = false;
+        var aether = plugin.Configuration.ShowAether;
+        var primal = plugin.Configuration.ShowPrimal;
+        var crystal = plugin.Configuration.ShowCrystal;
+        var dynamis = plugin.Configuration.ShowDynamis;
+        var materia = plugin.Configuration.ShowMateria;
+        var changed = false;
         if (ImGui.Checkbox("Aether", ref aether))
         {
             plugin.Configuration.ShowAether = aether;
@@ -139,7 +131,7 @@ public class MainWindow : Window
 
     private void DrawRefreshControls()
     {
-        bool canRefresh = plugin.CanRefresh;
+        var canRefresh = plugin.CanRefresh;
 
         ImGui.BeginDisabled(!canRefresh);
 
@@ -190,8 +182,8 @@ public class MainWindow : Window
             ImGuiTableFlags.Sortable |
             ImGuiTableFlags.SortMulti;
         // Always reserve space to prevent the table jumping on selection.
-        float availableHeight = ImGui.GetContentRegionAvail().Y;
-        float tableHeight = Math.Max(
+        var availableHeight = ImGui.GetContentRegionAvail().Y;
+        var tableHeight = Math.Max(
             100f,
             availableHeight - TravelPanelHeight);
         if (!ImGui.BeginTable(
@@ -213,7 +205,7 @@ public class MainWindow : Window
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
         UpdateSortedRows();
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         foreach (var row in sortedRows)
         {
             DrawPotRow(row, now);
@@ -227,14 +219,14 @@ public class MainWindow : Window
         var source = plugin.PotRows;
         var sortSpecs = ImGui.TableGetSortSpecs();
         var sortParts = new List<string>();
-        for (int i = 0; i < sortSpecs.SpecsCount; i++)
+        for (var i = 0; i < sortSpecs.SpecsCount; i++)
         {
             var spec = sortSpecs.Specs[i];
             sortParts.Add(
                 $"{spec.SortOrder}:{spec.ColumnIndex}:" +
                 $"{(int)spec.SortDirection}");
         }
-        string sortKey = string.Join("|", sortParts);
+        var sortKey = string.Join("|", sortParts);
         if (ReferenceEquals(lastSource, source) &&
             sortKey == lastSortKey)
         {
@@ -244,10 +236,10 @@ public class MainWindow : Window
         lastSortKey = sortKey;
         sortedRows = source.ToList();
         // Apply sorting from lowest to highest priority.
-        for (int i = sortSpecs.SpecsCount - 1; i >= 0; i--)
+        for (var i = sortSpecs.SpecsCount - 1; i >= 0; i--)
         {
             var spec = sortSpecs.Specs[i];
-            bool ascending =
+            var ascending =
                 spec.SortDirection ==
                 ImGuiSortDirection.Ascending;
             sortedRows = spec.ColumnIndex switch
@@ -304,10 +296,10 @@ public class MainWindow : Window
 
     private void DrawPotRow(PotTableRow row, long now)
     {
-        bool isCurrentInstance =
+        var isCurrentInstance =
             plugin.MatchedTrackerId.HasValue &&
             row.TrackerId == plugin.MatchedTrackerId.Value;
-        bool isSelected =
+        var isSelected =
             selectedTrackerId == row.TrackerId;
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
@@ -319,9 +311,9 @@ public class MainWindow : Window
                     GetDatacenterRowColor(row.Datacenter)));
         }
         // Capture row bounds without creating layout widgets.
-        Vector2 rowStart = ImGui.GetCursorScreenPos();
-        float rowLeft = rowStart.X;
-        float rowTop = rowStart.Y;
+        var rowStart = ImGui.GetCursorScreenPos();
+        var rowLeft = rowStart.X;
+        var rowTop = rowStart.Y;
         // Column 0: Datacenter
         if (isCurrentInstance)
         {
@@ -348,11 +340,11 @@ public class MainWindow : Window
         // Column 5: Countdown
         ImGui.TableSetColumnIndex(5);
         // Capture the right side of the final column.
-        float rowRight =
+        var rowRight =
             ImGui.GetCursorScreenPos().X +
             ImGui.GetContentRegionAvail().X;
         DrawCountdown(row, now);
-        float rowBottom = ImGui.GetItemRectMax().Y;
+        var rowBottom = ImGui.GetItemRectMax().Y;
         HandleRowInteraction(
             row,
             rowLeft,
@@ -372,9 +364,9 @@ public class MainWindow : Window
         bool isSelected,
         bool isCurrentInstance)
     {
-        bool canTravel = CanTravel(row);
-        Vector2 mouse = ImGui.GetMousePos();
-        bool hovered =
+        var canTravel = CanTravel(row);
+        var mouse = ImGui.GetMousePos();
+        var hovered =
             canTravel &&
             ImGui.IsWindowHovered(
                 ImGuiHoveredFlags.ChildWindows) &&
@@ -458,18 +450,18 @@ public class MainWindow : Window
         }
         ImGui.TextDisabled("Selected destination");
         ImGui.TextUnformatted($"{row.Datacenter} - {row.Zone}");
-        bool canTravel = CanTravel(row);
-        bool hasPrediction =
+        var canTravel = CanTravel(row);
+        var hasPrediction =
             row.NextPot is "S" or "N";
         // Three buttons, aligned toward the right.
         const float clearWidth = 65f;
         const float mapWidth = 115f;
         const float travelWidth = 75f;
-        float spacing = ImGui.GetStyle().ItemSpacing.X;
-        float totalWidth =
+        var spacing = ImGui.GetStyle().ItemSpacing.X;
+        var totalWidth =
             clearWidth + mapWidth + travelWidth +
             spacing * 2;
-        float startX =
+        var startX =
             ImGui.GetCursorPosX() +
             ImGui.GetContentRegionAvail().X -
             totalWidth;
@@ -530,7 +522,7 @@ public class MainWindow : Window
             ImGui.TextDisabled("Waiting for first Pot");
             return;
         }
-        long remaining = row.NextSpawnTime - now;
+        var remaining = row.NextSpawnTime - now;
         if (remaining <= 0)
         {
             ImGui.TextColored(

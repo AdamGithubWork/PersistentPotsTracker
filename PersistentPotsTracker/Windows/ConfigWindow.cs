@@ -23,7 +23,7 @@ public class ConfigWindow : Window
         ImGui.Text("Persistent Pots Tracker Settings");
         ImGui.Separator();
 
-        bool movable =
+        var movable =
             plugin.Configuration.IsConfigWindowMovable;
 
         if (ImGui.Checkbox("Allow settings window movement", ref movable))

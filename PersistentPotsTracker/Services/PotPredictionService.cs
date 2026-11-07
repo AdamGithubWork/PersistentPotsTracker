@@ -38,7 +38,7 @@ public class PotPredictionService
     public List<PotTableRow> BuildPotRows(IReadOnlyList<TrackerData> trackers)
     {
         var rows = new List<PotTableRow>(trackers.Count);
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
         foreach (var tracker in trackers)
         {
@@ -51,8 +51,8 @@ public class PotPredictionService
     private PotTableRow BuildPotRow(TrackerData tracker, long now)
     {
         PotData? lastPot = null;
-        bool hasSouth = false;
-        bool hasNorth = false;
+        var hasSouth = false;
+        var hasNorth = false;
 
         foreach (var pot in tracker.GetPots())
         {
@@ -73,11 +73,11 @@ public class PotPredictionService
             }
         }
 
-        string zone = hasSouth
+        var zone = hasSouth
             ? SouthHorn
             : hasNorth ? NorthHorn : Unknown;
 
-        string nextPot = Unknown;
+        var nextPot = Unknown;
         long nextSpawnTime = 0;
 
         if (lastPot != null)
@@ -88,7 +88,7 @@ public class PotPredictionService
             nextSpawnTime = lastPot.SpawnTime + PotSpawnIntervalSeconds;
         }
 
-        string datacenter = tracker.Datacenter switch
+        var datacenter = tracker.Datacenter switch
         {
             4 => "Aether",
             5 => "Primal",
@@ -147,7 +147,7 @@ public class PotPredictionService
         if (selected == null)
             return Unknown;
 
-        string name = isFate
+        var name = isFate
             ? GetFateName(selected.FateId)
             : GetCEName(selected.FateId);
 
@@ -164,7 +164,7 @@ public class PotPredictionService
         var sheet = dataManager.GetExcelSheet<Fate>();
         var fate = sheet.GetRowOrDefault((uint)fateId);
 
-        string name = fate?.Name.ToString() ?? "";
+        var name = fate?.Name.ToString() ?? "";
 
         if (string.IsNullOrWhiteSpace(name))
             name = $"FATE {fateId}";
@@ -181,7 +181,7 @@ public class PotPredictionService
         var sheet = dataManager.GetExcelSheet<DynamicEvent>();
         var ce = sheet.GetRowOrDefault((uint)ceId);
 
-        string name = ce?.Name.ToString() ?? "";
+        var name = ce?.Name.ToString() ?? "";
 
         if (string.IsNullOrWhiteSpace(name))
             name = $"CE {ceId}";

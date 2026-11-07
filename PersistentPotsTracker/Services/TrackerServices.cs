@@ -156,7 +156,7 @@ public sealed class TrackerService : IDisposable
             return activeRequest ?? Task.CompletedTask;
         }
 
-        DateTime now = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
 
         if (now < nextAllowedRequest)
         {
@@ -302,11 +302,11 @@ public sealed class TrackerService : IDisposable
     {
         while (completedRequests.TryDequeue(out var result))
         {
-            bool current =
+            var current =
                 result.SelectionVersion == selectionVersion &&
                 result.TerritoryVersion == territoryVersion;
 
-            bool success = result.Trackers is { Count: > 0 };
+            var success = result.Trackers is { Count: > 0 };
 
             if (result.Cancelled)
             {
@@ -380,7 +380,7 @@ public sealed class TrackerService : IDisposable
     {
         consecutiveFailures++;
 
-        double seconds = Math.Min(
+        var seconds = Math.Min(
             BaseBackoff.TotalSeconds *
                 Math.Pow(2, Math.Min(consecutiveFailures - 1, 10)),
             MaxBackoff.TotalSeconds);
@@ -389,7 +389,7 @@ public sealed class TrackerService : IDisposable
             ? RateLimitBackoff
             : TimeSpan.FromSeconds(seconds);
 
-        DateTime retryAt = now + delay;
+        var retryAt = now + delay;
 
         if (retryAt > nextAllowedRequest)
             nextAllowedRequest = retryAt;

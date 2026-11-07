@@ -5,6 +5,8 @@ namespace PersistentPotsTracker;
 
 public class PotData
 {
+    private List<long> respawnTimes = new();
+
     [JsonPropertyName("fate_id")]
     public int FateId { get; set; }
 
@@ -18,7 +20,11 @@ public class PotData
     public long LastSeen { get; set; }
 
     [JsonPropertyName("respawn_times")]
-    public List<long> RespawnTimes { get; set; } = new();
+    public List<long> RespawnTimes
+    {
+        get => respawnTimes;
+        set => respawnTimes = value ?? new List<long>();
+    }
 
     [JsonPropertyName("killed_fates")]
     public int KilledFates { get; set; }

@@ -34,8 +34,8 @@ public class PotOverlayWindow : Window
 
     public override void Draw()
     {
-        string datacenter = plugin.GetCurrentDatacenter();
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var datacenter = plugin.GetCurrentDatacenter();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
         UpdateNextPot(datacenter, now);
 
@@ -51,10 +51,10 @@ public class PotOverlayWindow : Window
         }
         else
         {
-            long remaining = cachedNextPot.NextSpawnTime - now;
-            string countdown = FormatCountdown(remaining);
+            var remaining = cachedNextPot.NextSpawnTime - now;
+            var countdown = FormatCountdown(remaining);
 
-            string zone = cachedNextPot.Zone switch
+            var zone = cachedNextPot.Zone switch
             {
                 "South Horn" => "South",
                 "North Horn" => "North",
@@ -121,10 +121,10 @@ public class PotOverlayWindow : Window
             return;
         }
 
-        long remaining = cachedNextPot.NextSpawnTime - now;
-        string countdown = FormatCountdown(remaining);
+        var remaining = cachedNextPot.NextSpawnTime - now;
+        var countdown = FormatCountdown(remaining);
 
-        string tooltip =
+        var tooltip =
             $"Next predicted Pot on {datacenter}\n" +
             $"Zone: {cachedNextPot.Zone}\n" +
             $"Pot location: {cachedNextPot.NextPot}\n" +

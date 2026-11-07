@@ -1,5 +1,3 @@
-
-using PersistentPotsTracker.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -69,7 +67,7 @@ public sealed class TrackerApiClient : IDisposable
 
         // Fetch trackers updated within approximately the last 10 minutes.
         // Round the timestamp down to improve shared HTTP cache reuse.
-        long cutoff = DateTimeOffset.UtcNow
+        var cutoff = DateTimeOffset.UtcNow
             .Subtract(MaxDataAge)
             .ToUnixTimeSeconds();
 
@@ -77,11 +75,11 @@ public sealed class TrackerApiClient : IDisposable
 
         // Stable ordering keeps equivalent datacenter selections
         // producing identical URLs.
-        string dcFilter = string.Join(
+        var dcFilter = string.Join(
             ",",
             datacenters.Distinct().OrderBy(id => id));
 
-        string url =
+        var url =
             $"{BaseUrl}?last_update=gte.{cutoff}" +
             $"&datacenter=in.({dcFilter})";
 
@@ -93,7 +91,7 @@ public sealed class TrackerApiClient : IDisposable
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
             var retryAfter = response.Headers.RetryAfter;
-            TimeSpan? wait = retryAfter?.Delta;
+            var wait = retryAfter?.Delta;
 
             if (wait == null &&
                 retryAfter?.Date is DateTimeOffset retryDate)

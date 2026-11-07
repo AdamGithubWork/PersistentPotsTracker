@@ -1,6 +1,5 @@
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game.InstanceContent;
-using PersistentPotsTracker.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -33,7 +32,7 @@ public class InstanceMatchingService
     // A fresh snapshot establishes the baseline; only subsequent additions count.
     public bool CheckForNewActivity(HashSet<int> currentFates, HashSet<int> currentCEs)
     {
-        bool newActivity = false;
+        var newActivity = false;
 
         if (hasActivitySnapshot)
         {
@@ -59,9 +58,9 @@ public class InstanceMatchingService
         if (MatchedTrackerId.HasValue || trackers.Count == 0)
             return false;
 
-        int? match = FindMatch(
+        var match = FindMatch(
             trackers, localFates, localCEs, datacenter,
-            out int candidateCount);
+            out var candidateCount);
 
         if (match.HasValue)
         {
@@ -102,7 +101,7 @@ public class InstanceMatchingService
             if (fate == null)
                 continue;
 
-            ids.Add((int)fate.FateId);
+            ids.Add(fate.FateId);
         }
 
         return ids;
@@ -138,7 +137,7 @@ public class InstanceMatchingService
         if (trackers.Count == 0 || (localFates.Count == 0 && localCEs.Count == 0))
             return null;
 
-        int currentDcId = datacenter switch
+        var currentDcId = datacenter switch
         {
             "Aether" => 4,
             "Primal" => 5,
@@ -148,7 +147,7 @@ public class InstanceMatchingService
             _ => 0
         };
 
-        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         int? candidateId = null;
 
         foreach (var tracker in trackers)
@@ -165,9 +164,9 @@ public class InstanceMatchingService
                 .Where(f => f.SpawnTime > 0 && f.SpawnTime <= now &&
                             now - f.SpawnTime <= RecentFateWindowSeconds);
 
-            bool anyActiveCe = false;
-            bool ceMatch = false;
-            bool ceConflict = false;
+            var anyActiveCe = false;
+            var ceMatch = false;
+            var ceConflict = false;
 
             foreach (var ce in activeCes)
             {
@@ -188,7 +187,7 @@ public class InstanceMatchingService
             else
             {
                 // No local CEs: only match trackers with no active CEs and a shared recent FATE.
-                bool fateMatch = recentFates.Any(f => localFates.Contains(f.FateId));
+                var fateMatch = recentFates.Any(f => localFates.Contains(f.FateId));
 
                 if (anyActiveCe || !fateMatch)
                     continue;

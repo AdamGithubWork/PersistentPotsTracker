@@ -43,9 +43,9 @@ public sealed class PotMapService
     public bool ShowOnMap(PotTableRow row)
     {
         if (!TryGetLocation(
-                row, out uint territoryId,
-                out float x, out float y,
-                out string potName))
+                row, out var territoryId,
+                out var x, out var y,
+                out var potName))
         {
             return false;
         }
@@ -59,7 +59,7 @@ public sealed class PotMapService
             if (territory == null)
                 return false;
 
-            uint mapId = territory.Value.Map.RowId;
+            var mapId = territory.Value.Map.RowId;
 
             if (mapId == 0)
                 return false;
@@ -67,7 +67,7 @@ public sealed class PotMapService
             var link = new MapLinkPayload(
                 territoryId, mapId, x, y);
 
-            bool opened = gameGui.OpenMapWithMapLink(link);
+            var opened = gameGui.OpenMapWithMapLink(link);
 
             if (opened)
             {
@@ -142,11 +142,11 @@ public sealed class PotMapService
             _ => 0
         };
 
-        bool arrivedInHorn =
+        var arrivedInHorn =
             destinationTerritory != 0 &&
             currentTerritory == destinationTerritory;
 
-        bool completedTravelToVillage =
+        var completedTravelToVillage =
             currentTerritory == PhantomVillageTerritory &&
             (observedBusy ||
              currentTerritory != startingTerritory);

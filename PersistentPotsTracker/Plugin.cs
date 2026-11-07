@@ -226,7 +226,7 @@ public sealed class Plugin : IDalamudPlugin
         if (territory == null)
             return false;
 
-        string name =
+        var name =
             territory.Value.PlaceName.Value.Name.ToString();
 
         return name.Contains(
@@ -261,7 +261,7 @@ public sealed class Plugin : IDalamudPlugin
     // Travel and map integration
     public void TravelToTracker(PotTableRow row)
     {
-        bool requested = lifestreamService.TryTravel(
+        var requested = lifestreamService.TryTravel(
             row,
             GetCurrentDatacenter(),
             GetHomeDatacenter(),
@@ -280,7 +280,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void ShowPotOnMap(PotTableRow row)
     {
-        bool opened = potMapService.ShowOnMap(row);
+        var opened = potMapService.ShowOnMap(row);
 
         LastTravelMessage = opened
             ? "Opened the predicted pot location on the map."
@@ -293,13 +293,13 @@ public sealed class Plugin : IDalamudPlugin
         if (disposed)
             return;
 
-        DateTime now = DateTime.UtcNow;
+        var now = DateTime.UtcNow;
 
         // Only check Lifestream while travel is pending.
         if (potMapService.HasPendingTravel)
         {
             bool? lifestreamBusy =
-                lifestreamService.TryGetBusy(out bool busy)
+                lifestreamService.TryGetBusy(out var busy)
                     ? busy
                     : null;
 
@@ -321,7 +321,7 @@ public sealed class Plugin : IDalamudPlugin
             var (localFates, localCEs) =
                 instanceMatchingService.GetLocalActivity();
 
-            bool newActivity =
+            var newActivity =
                 instanceMatchingService.CheckForNewActivity(
                     localFates,
                     localCEs);
@@ -331,7 +331,7 @@ public sealed class Plugin : IDalamudPlugin
                 trackerService.OnNewActivity(now);
             }
 
-            bool foundMatch =
+            var foundMatch =
                 instanceMatchingService.TryMatch(
                     Trackers,
                     localFates,

@@ -1,12 +1,12 @@
 namespace PersistentPotsTracker.Models;
 
-public class PotTableRow
+public sealed class PotTableRow
 {
-    public int TrackerId { get; set; }
-    public string Datacenter { get; set; } = "";
-    public string Zone { get; set; } = "";
-    public string LastCurrentCE { get; set; } = "";
-    public string LastCurrentFate { get; set; } = "";
-    public string NextPot { get; set; } = "";
-    public long NextSpawnTime { get; set; }
+    public int TrackerId { get; init; }
+    public string Datacenter { get; init; } = "";
+    public string Zone { get; init; } = "";
+    public string LastCurrentCE { get; init; } = "";
+    public string LastCurrentFate { get; init; } = "";
+    public string NextPot { get; init; } = "";
+    public long NextSpawnTime { get; init; }
 }
