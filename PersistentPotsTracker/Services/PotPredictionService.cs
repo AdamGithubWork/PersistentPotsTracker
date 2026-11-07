@@ -1,4 +1,3 @@
-
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using PersistentPotsTracker.Models;
@@ -9,6 +8,23 @@ namespace PersistentPotsTracker.Services;
 
 public class PotPredictionService
 {
+    private const string SouthHorn = "South Horn";
+    private const string NorthHorn = "North Horn";
+    private const string Unknown = "Unknown";
+
+    // Seconds from a pot spawning to the next one.
+    private const long PotSpawnIntervalSeconds = 1800;
+
+    // Pot FATE IDs: which zone each belongs to and the label shown in "Next Pot".
+    // One table instead of two parallel switches, so the IDs live in one place.
+    private static readonly Dictionary<int, (string Zone, string Label)> PotFates = new()
+    {
+        [1976] = (SouthHorn, "S"),
+        [1977] = (SouthHorn, "N"),
+        [2072] = (NorthHorn, "S"),
+        [2073] = (NorthHorn, "N"),
+    };
+
     private readonly IDataManager dataManager;
 
     private readonly Dictionary<int, string> fateNameCache = new();
@@ -19,7 +35,7 @@ public class PotPredictionService
         this.dataManager = dataManager;
     }
 
-    public List<PotTableRow> BuildPotRows(List<TrackerData> trackers)
+    public List<PotTableRow> BuildPotRows(IReadOnlyList<TrackerData> trackers)
     {
         var rows = new List<PotTableRow>(trackers.Count);
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -40,21 +56,13 @@ public class PotPredictionService
 
         foreach (var pot in tracker.GetPots())
         {
-            switch (pot.FateId)
-            {
-                case 1976:
-                case 1977:
-                    hasSouth = true;
-                    break;
+            if (!PotFates.TryGetValue(pot.FateId, out var info))
+                continue;
 
-                case 2072:
-                case 2073:
-                    hasNorth = true;
-                    break;
-
-                default:
-                    continue;
-            }
+            if (info.Zone == SouthHorn)
+                hasSouth = true;
+            else
+                hasNorth = true;
 
             if (pot.SpawnTime <= 0 || pot.SpawnTime > now)
                 continue;
@@ -66,22 +74,18 @@ public class PotPredictionService
         }
 
         string zone = hasSouth
-            ? "South Horn"
-            : hasNorth ? "North Horn" : "Unknown";
+            ? SouthHorn
+            : hasNorth ? NorthHorn : Unknown;
 
-        string nextPot = "Unknown";
+        string nextPot = Unknown;
         long nextSpawnTime = 0;
 
         if (lastPot != null)
         {
-            nextPot = lastPot.FateId switch
-            {
-                1976 or 2072 => "S",
-                1977 or 2073 => "N",
-                _ => "Unknown"
-            };
+            if (PotFates.TryGetValue(lastPot.FateId, out var lastInfo))
+                nextPot = lastInfo.Label;
 
-            nextSpawnTime = lastPot.SpawnTime + 1800;
+            nextSpawnTime = lastPot.SpawnTime + PotSpawnIntervalSeconds;
         }
 
         string datacenter = tracker.Datacenter switch
@@ -109,7 +113,7 @@ public class PotPredictionService
     }
 
     private string GetLastCurrentEncounter(
-        List<PotData> history,
+        IReadOnlyList<PotData> history,
         bool isFate,
         long now)
     {
@@ -141,7 +145,7 @@ public class PotPredictionService
         var selected = latestActive ?? latest;
 
         if (selected == null)
-            return "Unknown";
+            return Unknown;
 
         string name = isFate
             ? GetFateName(selected.FateId)
