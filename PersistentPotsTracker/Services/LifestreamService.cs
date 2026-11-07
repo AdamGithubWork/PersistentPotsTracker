@@ -7,7 +7,9 @@ using System;
 
 namespace PersistentPotsTracker.Services;
 
+/// <summary>
 /// Optional integration with Lifestream through Dalamud IPC.
+/// </summary>
 public sealed class LifestreamService
 {
     private readonly ICallGateSubscriber<string, object> executeCommand;
@@ -28,19 +30,29 @@ public sealed class LifestreamService
 
         this.log = log;
     }
+
     public bool TryGetBusy(out bool busy)
     {
+        busy = false;
+
+        // Avoid invoking IPC when Lifestream is unavailable.
+        if (!isBusy.HasFunction)
+            return false;
+
         try
         {
             busy = isBusy.InvokeFunc();
             return true;
         }
-        catch
+        catch (Exception)
         {
+            // This can be polled frequently while traveling.
+            // Avoid filling the log with repeated IPC errors.
             busy = false;
             return false;
         }
     }
+
     public bool TryTravel(
         PotTableRow row,
         string currentDatacenter,
@@ -62,10 +74,20 @@ public sealed class LifestreamService
             return false;
         }
 
+        // Only supported datacenter names can enter Lifestream commands.
         if (row.Datacenter is not
             ("Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia"))
         {
-            message = "The selected tracker has an unsupported datacenter.";
+            message =
+                "The selected tracker has an unsupported datacenter.";
+            return false;
+        }
+
+        if (!isBusy.HasFunction || !executeCommand.HasAction)
+        {
+            message =
+                "Could not reach Lifestream. " +
+                "Check that it is installed and enabled.";
             return false;
         }
 
@@ -82,15 +104,23 @@ public sealed class LifestreamService
         else if (string.Equals(
                      row.Datacenter,
                      homeDatacenter,
-                     StringComparison.OrdinalIgnoreCase) &&
-                 !string.IsNullOrWhiteSpace(homeWorld))
+                     StringComparison.OrdinalIgnoreCase))
         {
-            // Returning to the home datacenter.
+            // Return directly to the player's home world.
+            // Do not silently select another world if the name is invalid.
+            if (!IsPlainWorldName(homeWorld))
+            {
+                message =
+                    "Could not determine a valid home world " +
+                    "for Lifestream travel.";
+                return false;
+            }
+
             command = $"{homeWorld},{occultCommand}";
         }
         else
         {
-            // Traveling to another datacenter.
+            // Travel to another datacenter.
             command = $"{row.Datacenter},{occultCommand}";
         }
 
@@ -126,5 +156,24 @@ public sealed class LifestreamService
 
             return false;
         }
+    }
+
+    // FFXIV world names use ASCII letters.
+    // Reject delimiters or unexpected characters in IPC commands.
+    private static bool IsPlainWorldName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        foreach (char c in name)
+        {
+            if (!((c >= 'A' && c <= 'Z') ||
+                  (c >= 'a' && c <= 'z')))
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
