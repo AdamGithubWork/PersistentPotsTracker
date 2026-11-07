@@ -141,10 +141,16 @@ public class MainWindow : Window
     {
         if (plugin.IsRefreshing)
             ImGui.BeginDisabled();
-        if (ImGui.Button("Refresh Pots"))
+        bool canRefresh = plugin.CanRefresh;
+
+        ImGui.BeginDisabled(!canRefresh);
+
+        if (ImGui.Button("Refresh"))
         {
             _ = plugin.RefreshTrackersAsync();
         }
+
+        ImGui.EndDisabled();
         if (plugin.IsRefreshing)
             ImGui.EndDisabled();
         ImGui.SameLine();

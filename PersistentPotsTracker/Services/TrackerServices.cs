@@ -33,7 +33,10 @@ public sealed class TrackerService : IDisposable
     public List<PotTableRow> PotRows { get; private set; } = new();
     public string? ApiError { get; private set; }
     public bool IsRefreshing => isRefreshing;
-
+    public bool CanRefresh =>
+    !disposed &&
+    !isRefreshing &&
+    DateTime.UtcNow >= nextAllowedRequest;
     private DateTime lastRefresh = DateTime.MinValue;
     private DateTime nextAllowedRequest = DateTime.MinValue;
     private DateTime? entryFollowupAt;

@@ -7,9 +7,7 @@ using System;
 
 namespace PersistentPotsTracker.Services;
 
-/// <summary>
 /// Optional integration with Lifestream through Dalamud IPC.
-/// </summary>
 public sealed class LifestreamService
 {
     private readonly ICallGateSubscriber<string, object> executeCommand;

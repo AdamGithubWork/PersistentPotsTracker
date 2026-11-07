@@ -47,6 +47,7 @@ public sealed class Plugin : IDalamudPlugin
     public List<TrackerData> Trackers => trackerService.Trackers;
     public List<PotTableRow> PotRows => trackerService.PotRows;
     public bool IsRefreshing => trackerService.IsRefreshing;
+    public bool CanRefresh => trackerService.CanRefresh;
     public string? ApiError => trackerService.ApiError;
 
     public int? MatchedTrackerId =>
