@@ -3,7 +3,26 @@
 A Dalamud plugin for tracking Pot FATEs in FFXIV's Occult Crescent.
 
 Pulls data from [FFXIVTracker](https://tracker.xivstats.com/) to show upcoming pot spawns, countdowns, and instance activity in-game. I made this so I wouldn't have to keep checking the tracker website while playing.
+## Installation
 
+Persistent Pots Tracker is available through a custom Dalamud plugin repository.
+
+1. Launch Final Fantasy XIV with Dalamud enabled.
+2. Type `/xlsettings` in chat.
+3. Go to **Experimental → Custom Plugin Repositories**.
+4. Add the following repository URL:
+
+   ```
+   https://raw.githubusercontent.com/AdamGithubWork/PersistentPotsTracker/master/pluginmaster.json
+   ```
+
+5. Enable the repository and save your settings.
+6. Open `/xlplugins` and search for **Persistent Pots Tracker**.
+7. Click **Install**.
+
+Once installed, type `/pots` in-game to open the tracker.
+
+**Optional:** Install [Lifestream](https://github.com/NightmareXIV/Lifestream) to use the Travel feature. The pot timers, table, and overlay work without it.
 ## Features
 
 - **Pot timers** — See the next predicted pot spawn and countdown for South Horn and North Horn.
