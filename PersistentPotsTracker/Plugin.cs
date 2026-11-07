@@ -52,6 +52,7 @@ public sealed class Plugin : IDalamudPlugin
     public bool CanRefresh => trackerService.CanRefresh;
     public string? ApiError => trackerService.ApiError;
     public int? MatchedTrackerId => instanceMatchingService.MatchedTrackerId;
+    public bool IsLifestreamAvailable => lifestreamService.IsAvailable;
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,

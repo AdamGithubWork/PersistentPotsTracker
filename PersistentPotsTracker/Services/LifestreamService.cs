@@ -27,6 +27,8 @@ public sealed class LifestreamService
         this.log = log;
     }
 
+    public bool IsAvailable => isBusy.HasFunction && executeCommand.HasAction;
+
     public bool TryGetBusy(out bool busy)
     {
         busy = false;
@@ -60,7 +62,7 @@ public sealed class LifestreamService
             return false;
         }
 
-        if (!isBusy.HasFunction || !executeCommand.HasAction)
+        if (!IsAvailable)
         {
             message = "Lifestream isn't available. Make sure it's enabled.";
             return false;

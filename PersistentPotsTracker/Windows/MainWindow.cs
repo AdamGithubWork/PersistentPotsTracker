@@ -51,6 +51,10 @@ public class MainWindow : Window
     // Currently selected tracker for travel.
     private int? selectedTrackerId;
 
+    // Checked once per frame. Selecting rows and "Show on Map" don't need
+    // Lifestream, so only the travel actions look at this.
+    private bool lifestreamAvailable;
+
     public MainWindow(Plugin plugin)
         : base("Persistent Pots Tracker###PersistentPotsTrackerMainWindow")
     {
@@ -62,6 +66,8 @@ public class MainWindow : Window
 
     public override void Draw()
     {
+        lifestreamAvailable = plugin.IsLifestreamAvailable;
+
         DrawDatacenterFilters();
         ImGui.Separator();
         DrawRefreshControls();
@@ -140,6 +146,12 @@ public class MainWindow : Window
         {
             ImGui.SameLine();
             ImGui.TextColored(SuccessColor, "Current instance identified");
+        }
+
+        if (!lifestreamAvailable)
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(WarningColor, "Lifestream not found: travel is disabled");
         }
 
         if (!string.IsNullOrEmpty(plugin.ApiError))
@@ -309,7 +321,9 @@ public class MainWindow : Window
         // Double right-click travels straight away, same or different datacenter.
         if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Right))
         {
-            plugin.TravelToTracker(row);
+            if (lifestreamAvailable)
+                plugin.TravelToTracker(row);
+
             return;
         }
 
@@ -341,7 +355,8 @@ public class MainWindow : Window
         ImGui.TextDisabled("Selected destination");
         ImGui.TextUnformatted($"{row.Datacenter} - {row.Zone}");
 
-        var canTravel = CanTravel(row);
+        var knownDestination = CanTravel(row);
+        var canTravel = lifestreamAvailable && knownDestination;
         var hasPrediction = row.NextPot is "S" or "N";
 
         // Three buttons, aligned toward the right.
@@ -379,11 +394,19 @@ public class MainWindow : Window
             plugin.TravelToTracker(row);
         ImGui.EndDisabled();
 
-        if (ImGui.IsItemHovered())
+        // Disabled items only report hover with AllowWhenDisabled.
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
         {
-            ImGui.SetTooltip(
-                $"Travel to {row.Datacenter} / {row.Zone}\n" +
-                "Uses Lifestream and opens the pot map after arrival.");
+            if (!lifestreamAvailable)
+            {
+                ImGui.SetTooltip("Travel needs the Lifestream plugin. Install and enable it to use this.");
+            }
+            else if (knownDestination)
+            {
+                ImGui.SetTooltip(
+                    $"Travel to {row.Datacenter} / {row.Zone}\n" +
+                    "Uses Lifestream and opens the pot map after arrival.");
+            }
         }
     }
 
