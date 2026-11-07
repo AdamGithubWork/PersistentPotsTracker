@@ -1,4 +1,3 @@
-
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -6,7 +5,6 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using PersistentPotsTracker.Models;
-
 namespace PersistentPotsTracker.Windows;
 
 public class MainWindow : Window
@@ -16,9 +14,9 @@ public class MainWindow : Window
     private List<PotTableRow> sortedRows = new();
     private List<PotTableRow>? lastSource;
     private string lastSortKey = "";
-
     // Currently selected tracker for travel.
     private int? selectedTrackerId;
+
 
     private static readonly Vector4 MatchedRowColor =
         new(0.1f, 0.45f, 0.2f, 0.45f);
@@ -28,6 +26,7 @@ public class MainWindow : Window
 
     private static readonly Vector4 HoverRowColor =
         new(0.3f, 0.3f, 0.3f, 0.2f);
+
     private static readonly Vector4 AetherRowColor =
         new(0.92f, 0.49f, 0.14f, 0.40f);
 
@@ -42,6 +41,7 @@ public class MainWindow : Window
 
     private static readonly Vector4 MateriaRowColor =
         new(0.90f, 0.78f, 0.14f, 0.40f);
+
     private static readonly Vector4 SuccessColor =
         new(0.3f, 1f, 0.3f, 1f);
 
@@ -52,14 +52,12 @@ public class MainWindow : Window
         new(1f, 0.3f, 0.3f, 1f);
 
     private const long SoonThresholdSeconds = 300;
-
     private const float TravelPanelHeight = 80f;
 
     public MainWindow(Plugin plugin)
         : base("Persistent Pots Tracker###PersistentPotsTrackerMainWindow")
     {
         this.plugin = plugin;
-
         Size = new Vector2(950, 500);
         SizeCondition = ImGuiCond.FirstUseEver;
         Flags = ImGuiWindowFlags.NoCollapse;
@@ -69,70 +67,63 @@ public class MainWindow : Window
     {
         DrawDatacenterFilters();
         ImGui.Separator();
-
         DrawRefreshControls();
         ImGui.Separator();
-
         if (!string.IsNullOrEmpty(plugin.LastTravelMessage))
         {
-            ImGui.TextWrapped(plugin.LastTravelMessage);
+            // Unformatted so the text is never interpreted as a format string.
+            ImGui.PushTextWrapPos(0f);
+            ImGui.TextUnformatted(plugin.LastTravelMessage);
+            ImGui.PopTextWrapPos();
             ImGui.Separator();
         }
-
-        // Clear the selection if its tracker is no longer available.
-        if (selectedTrackerId.HasValue &&
-            !plugin.PotRows.Any(r =>
-                r.TrackerId == selectedTrackerId.Value))
+        // Look up the selected row once per frame. Clear the selection
+        // if its tracker is no longer available.
+        PotTableRow? selectedRow = null;
+        if (selectedTrackerId.HasValue)
         {
-            selectedTrackerId = null;
+            int id = selectedTrackerId.Value;
+            selectedRow = plugin.PotRows.FirstOrDefault(r => r.TrackerId == id);
+            if (selectedRow == null)
+                selectedTrackerId = null;
         }
-
         DrawPotTable();
-        DrawTravelSelection();
+        DrawTravelSelection(selectedRow);
     }
 
     private void DrawDatacenterFilters()
     {
         ImGui.Text("Datacenters");
-
         bool aether = plugin.Configuration.ShowAether;
         bool primal = plugin.Configuration.ShowPrimal;
         bool crystal = plugin.Configuration.ShowCrystal;
         bool dynamis = plugin.Configuration.ShowDynamis;
         bool materia = plugin.Configuration.ShowMateria;
         bool changed = false;
-
         if (ImGui.Checkbox("Aether", ref aether))
         {
             plugin.Configuration.ShowAether = aether;
             changed = true;
         }
-
         ImGui.SameLine();
-
         if (ImGui.Checkbox("Primal", ref primal))
         {
             plugin.Configuration.ShowPrimal = primal;
             changed = true;
         }
-
         ImGui.SameLine();
-
         if (ImGui.Checkbox("Crystal", ref crystal))
         {
             plugin.Configuration.ShowCrystal = crystal;
             changed = true;
         }
-
         ImGui.SameLine();
-
         if (ImGui.Checkbox("Dynamis", ref dynamis))
         {
             plugin.Configuration.ShowDynamis = dynamis;
             changed = true;
         }
         ImGui.SameLine();
-
         if (ImGui.Checkbox("Materia", ref materia))
         {
             plugin.Configuration.ShowMateria = materia;
@@ -142,7 +133,6 @@ public class MainWindow : Window
         {
             plugin.Configuration.Save();
             plugin.DatacenterSelectionChanged();
-
             selectedTrackerId = null;
         }
     }
@@ -151,17 +141,13 @@ public class MainWindow : Window
     {
         if (plugin.IsRefreshing)
             ImGui.BeginDisabled();
-
         if (ImGui.Button("Refresh Pots"))
         {
             _ = plugin.RefreshTrackersAsync();
         }
-
         if (plugin.IsRefreshing)
             ImGui.EndDisabled();
-
         ImGui.SameLine();
-
         if (plugin.IsRefreshing)
         {
             ImGui.TextDisabled("Refreshing...");
@@ -171,21 +157,19 @@ public class MainWindow : Window
             ImGui.Text(
                 $"Instances found: {plugin.Trackers.Count}");
         }
-
         if (plugin.MatchedTrackerId.HasValue)
         {
             ImGui.SameLine();
-
             ImGui.TextColored(
                 SuccessColor,
                 "Current instance identified");
         }
-
         if (!string.IsNullOrEmpty(plugin.ApiError))
         {
-            ImGui.TextColored(
-                ErrorColor,
-                $"API Error: {plugin.ApiError}");
+            // The message can contain exception text, so draw it unformatted.
+            ImGui.PushStyleColor(ImGuiCol.Text, ErrorColor);
+            ImGui.TextUnformatted($"API Error: {plugin.ApiError}");
+            ImGui.PopStyleColor();
         }
     }
 
@@ -199,14 +183,11 @@ public class MainWindow : Window
             ImGuiTableFlags.SizingStretchProp |
             ImGuiTableFlags.Sortable |
             ImGuiTableFlags.SortMulti;
-
-        // Reserve room for the selection panel when needed.
+        // Always reserve space to prevent the table jumping on selection.
         float availableHeight = ImGui.GetContentRegionAvail().Y;
-
         float tableHeight = Math.Max(
             100f,
             availableHeight - TravelPanelHeight);
-
         if (!ImGui.BeginTable(
                 "PotTimerTable",
                 6,
@@ -215,68 +196,54 @@ public class MainWindow : Window
         {
             return;
         }
-
         ImGui.TableSetupColumn("Datacenter");
         ImGui.TableSetupColumn("Zone");
         ImGui.TableSetupColumn("Last/Current CE");
         ImGui.TableSetupColumn("Last/Current FATE");
         ImGui.TableSetupColumn("Next Pot");
-
         ImGui.TableSetupColumn(
             "Countdown",
             ImGuiTableColumnFlags.DefaultSort);
-
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableHeadersRow();
-
         UpdateSortedRows();
-
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
         foreach (var row in sortedRows)
         {
             DrawPotRow(row, now);
         }
-
         ImGui.EndTable();
     }
 
     private void UpdateSortedRows()
     {
+        // Read the list once: the plugin swaps it wholesale on refresh.
+        var source = plugin.PotRows;
         var sortSpecs = ImGui.TableGetSortSpecs();
         var sortParts = new List<string>();
-
         for (int i = 0; i < sortSpecs.SpecsCount; i++)
         {
             var spec = sortSpecs.Specs[i];
-
             sortParts.Add(
                 $"{spec.SortOrder}:{spec.ColumnIndex}:" +
                 $"{(int)spec.SortDirection}");
         }
-
         string sortKey = string.Join("|", sortParts);
-
-        if (ReferenceEquals(lastSource, plugin.PotRows) &&
+        if (ReferenceEquals(lastSource, source) &&
             sortKey == lastSortKey)
         {
             return;
         }
-
-        lastSource = plugin.PotRows;
+        lastSource = source;
         lastSortKey = sortKey;
-
-        sortedRows = plugin.PotRows.ToList();
-
+        sortedRows = source.ToList();
         // Apply sorting from lowest to highest priority.
         for (int i = sortSpecs.SpecsCount - 1; i >= 0; i--)
         {
             var spec = sortSpecs.Specs[i];
-
             bool ascending =
                 spec.SortDirection ==
                 ImGuiSortDirection.Ascending;
-
             sortedRows = spec.ColumnIndex switch
             {
                 0 => ascending
@@ -284,34 +251,28 @@ public class MainWindow : Window
                         r => r.Datacenter).ToList()
                     : sortedRows.OrderByDescending(
                         r => r.Datacenter).ToList(),
-
                 1 => ascending
                     ? sortedRows.OrderBy(
                         r => r.Zone).ToList()
                     : sortedRows.OrderByDescending(
                         r => r.Zone).ToList(),
-
                 2 => ascending
                     ? sortedRows.OrderBy(
                         r => r.LastCurrentCE).ToList()
                     : sortedRows.OrderByDescending(
                         r => r.LastCurrentCE).ToList(),
-
                 3 => ascending
                     ? sortedRows.OrderBy(
                         r => r.LastCurrentFate).ToList()
                     : sortedRows.OrderByDescending(
                         r => r.LastCurrentFate).ToList(),
-
                 4 => ascending
                     ? sortedRows.OrderBy(
                         r => r.NextPot).ToList()
                     : sortedRows.OrderByDescending(
                         r => r.NextPot).ToList(),
-
                 5 => SortByCountdown(
                     sortedRows, ascending),
-
                 _ => sortedRows
             };
         }
@@ -340,10 +301,8 @@ public class MainWindow : Window
         bool isCurrentInstance =
             plugin.MatchedTrackerId.HasValue &&
             row.TrackerId == plugin.MatchedTrackerId.Value;
-
         bool isSelected =
             selectedTrackerId == row.TrackerId;
-
         ImGui.TableNextRow();
         ImGui.TableSetColumnIndex(0);
         if (!isSelected && !isCurrentInstance)
@@ -355,10 +314,8 @@ public class MainWindow : Window
         }
         // Capture row bounds without creating layout widgets.
         Vector2 rowStart = ImGui.GetCursorScreenPos();
-
         float rowLeft = rowStart.X;
         float rowTop = rowStart.Y;
-
         // Column 0: Datacenter
         if (isCurrentInstance)
         {
@@ -370,35 +327,26 @@ public class MainWindow : Window
         {
             ImGui.TextUnformatted(row.Datacenter);
         }
-
         // Column 1: Zone
         ImGui.TableSetColumnIndex(1);
         ImGui.TextUnformatted(row.Zone);
-
         // Column 2: Last/Current CE
         ImGui.TableSetColumnIndex(2);
         ImGui.TextUnformatted(row.LastCurrentCE);
-
         // Column 3: Last/Current FATE
         ImGui.TableSetColumnIndex(3);
         ImGui.TextUnformatted(row.LastCurrentFate);
-
         // Column 4: Next Pot
         ImGui.TableSetColumnIndex(4);
         ImGui.TextUnformatted(row.NextPot);
-
         // Column 5: Countdown
         ImGui.TableSetColumnIndex(5);
-
         // Capture the right side of the final column.
         float rowRight =
             ImGui.GetCursorScreenPos().X +
             ImGui.GetContentRegionAvail().X;
-
         DrawCountdown(row, now);
-
         float rowBottom = ImGui.GetItemRectMax().Y;
-
         HandleRowInteraction(
             row,
             rowLeft,
@@ -418,13 +366,8 @@ public class MainWindow : Window
         bool isSelected,
         bool isCurrentInstance)
     {
-        bool canTravel =
-            (row.Zone is "North Horn" or "South Horn") &&
-            (row.Datacenter is
-                "Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia");
-
+        bool canTravel = CanTravel(row);
         Vector2 mouse = ImGui.GetMousePos();
-
         bool hovered =
             canTravel &&
             ImGui.IsWindowHovered(
@@ -433,10 +376,7 @@ public class MainWindow : Window
             mouse.X < right &&
             mouse.Y >= top &&
             mouse.Y < bottom;
-
         // Selected destination takes priority over other highlights.
-        Vector4 rowColor;
-
         if (isSelected)
         {
             ImGui.TableSetBgColor(
@@ -455,19 +395,15 @@ public class MainWindow : Window
                 ImGuiTableBgTarget.RowBg0,
                 ImGui.ColorConvertFloat4ToU32(HoverRowColor));
         }
-
         if (!hovered)
             return;
-
         ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
-
         // Double right-click to travel immediately.
         if (ImGui.IsMouseDoubleClicked(ImGuiMouseButton.Right))
         {
-            plugin.TravelToTracker(row);
+            RequestTravel(row);
             return;
         }
-
         // Single left-click to select or deselect.
         if (ImGui.IsMouseClicked(ImGuiMouseButton.Left))
         {
@@ -489,60 +425,52 @@ public class MainWindow : Window
             _ => Vector4.Zero
         };
     }
-    private void DrawTravelSelection()
+    // Single definition of "this row has a known destination", used by the row
+    // hover logic and the travel panel.
+
+    private static bool CanTravel(PotTableRow row)
     {
-        if (!selectedTrackerId.HasValue)
+        return (row.Zone is "North Horn" or "South Horn") &&
+               (row.Datacenter is
+                   "Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia");
+    }
+    // Travel immediately for both same- and cross-datacenter destinations.
+
+    private void RequestTravel(PotTableRow row)
+    {
+        plugin.TravelToTracker(row);
+    }
+
+    private void DrawTravelSelection(PotTableRow? row)
+    {
+        ImGui.Separator();
+        ImGui.Spacing();
+        if (row == null)
         {
-            ImGui.Separator();
-            ImGui.Spacing();
             ImGui.TextDisabled("Select a tracker to view travel options.");
             return;
         }
-
-        PotTableRow? row = plugin.PotRows.FirstOrDefault(
-            r => r.TrackerId == selectedTrackerId.Value);
-
-        if (row == null)
-        {
-            selectedTrackerId = null;
-            return;
-        }
-
-        ImGui.Separator();
-        ImGui.Spacing();
-
         ImGui.TextDisabled("Selected destination");
-        ImGui.Text($"{row.Datacenter} - {row.Zone}");
-
-        bool canTravel =
-            (row.Zone is "North Horn" or "South Horn") &&
-            (row.Datacenter is
-                "Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia");   
-
+        ImGui.TextUnformatted($"{row.Datacenter} - {row.Zone}");
+        bool canTravel = CanTravel(row);
         bool hasPrediction =
             row.NextPot is "S" or "N";
-
         // Three buttons, aligned toward the right.
         const float clearWidth = 65f;
         const float mapWidth = 115f;
         const float travelWidth = 75f;
-
         float spacing = ImGui.GetStyle().ItemSpacing.X;
-
         float totalWidth =
             clearWidth + mapWidth + travelWidth +
             spacing * 2;
-
         float startX =
             ImGui.GetCursorPosX() +
             ImGui.GetContentRegionAvail().X -
             totalWidth;
-
         if (startX > ImGui.GetCursorPosX())
         {
             ImGui.SetCursorPosX(startX);
         }
-
         if (ImGui.Button(
                 "Clear##TravelSelection",
                 new Vector2(clearWidth, 0)))
@@ -550,44 +478,34 @@ public class MainWindow : Window
             selectedTrackerId = null;
             return;
         }
-
         ImGui.SameLine();
-
         if (!hasPrediction)
             ImGui.BeginDisabled();
-
         if (ImGui.Button(
                 "Show on Map##SelectedTracker",
                 new Vector2(mapWidth, 0)))
         {
             plugin.ShowPotOnMap(row);
         }
-
         if (!hasPrediction)
             ImGui.EndDisabled();
-
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip(
                 "Open the predicted pot location " +
                 "on the FFXIV map.");
         }
-
         ImGui.SameLine();
-
         if (!canTravel)
             ImGui.BeginDisabled();
-
         if (ImGui.Button(
                 "Travel##SelectedTracker",
                 new Vector2(travelWidth, 0)))
         {
-            plugin.TravelToTracker(row);
+            RequestTravel(row);
         }
-
         if (!canTravel)
             ImGui.EndDisabled();
-
         if (ImGui.IsItemHovered())
         {
             ImGui.SetTooltip(
@@ -596,7 +514,6 @@ public class MainWindow : Window
                 "after arrival.");
         }
     }
-
 
     private static void DrawCountdown(
         PotTableRow row,
@@ -607,9 +524,7 @@ public class MainWindow : Window
             ImGui.TextDisabled("Waiting for first Pot");
             return;
         }
-
         long remaining = row.NextSpawnTime - now;
-
         if (remaining <= 0)
         {
             ImGui.TextColored(
@@ -633,9 +548,7 @@ public class MainWindow : Window
     {
         if (seconds <= 0)
             return "00:00";
-
         var duration = TimeSpan.FromSeconds(seconds);
-
         if (duration.TotalHours >= 1)
         {
             return
@@ -643,7 +556,6 @@ public class MainWindow : Window
                 $"{duration.Minutes:D2}:" +
                 $"{duration.Seconds:D2}";
         }
-
         return
             $"{duration.Minutes:D2}:{duration.Seconds:D2}";
     }
