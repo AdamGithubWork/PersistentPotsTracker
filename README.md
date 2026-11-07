@@ -50,7 +50,7 @@ A custom repository URL and installation instructions will be added here when th
 
 ## Usage
 
-Type `/pots` in-game to open the tracker.
+Type `/pots` in-game to open the tracker or `/potssettings` in game to open up settings.
 
 ### Main Window
 
