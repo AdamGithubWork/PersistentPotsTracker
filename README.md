@@ -96,6 +96,7 @@ When it finds a unique match, that instance is highlighted in the table.
 
 ## Things to Know
 
+- Only supports NA + Oceania Physical Data Centers. Maybe will expand in the future if there's demand.
 - Spawn times are estimates based on community-reported data, not guaranteed spawn times.
 - Tracker information can be delayed or incomplete.
 - Automatic instance matching isn't always accurate.
