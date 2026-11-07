@@ -3,6 +3,7 @@ using PersistentPotsTracker.Models;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,17 +23,21 @@ public sealed class TrackerService : IDisposable
 
     public List<TrackerData> Trackers { get; private set; } = new();
     public List<PotTableRow> PotRows { get; private set; } = new();
-    public bool IsRefreshing { get; private set; }
     public string? ApiError { get; private set; }
+
+    // The refresh continuation can resume on a thread-pool thread (Dalamud's framework
+    // thread has no synchronization context), so flags shared with Update() are volatile.
+    private volatile bool isRefreshing;
+    public bool IsRefreshing => isRefreshing;
 
     private DateTime lastRefresh = DateTime.MinValue;
     private bool wasWindowOpen;
-    private bool refreshPending;
+    private volatile bool refreshPending;
     private int selectionVersion;
     private int territoryVersion;
     private DateTime? entryFollowupAt;
     private DateTime? activityRetryAt;
-    private bool disposed;
+    private volatile bool disposed;
 
     public TrackerService(
         Configuration configuration,
@@ -103,7 +108,7 @@ public sealed class TrackerService : IDisposable
             refreshPending = true;
 
         // Collapse multiple triggers into one outstanding request at a time.
-        if (refreshPending && !IsRefreshing)
+        if (refreshPending && !isRefreshing)
         {
             refreshPending = false;
             _ = RefreshAsync();
@@ -115,7 +120,7 @@ public sealed class TrackerService : IDisposable
         if (disposed)
             return;
 
-        if (IsRefreshing)
+        if (isRefreshing)
         {
             refreshPending = true;
             return;
@@ -136,8 +141,10 @@ public sealed class TrackerService : IDisposable
 
         if (configuration.ShowDynamis)
             datacenters.Add(11);
+
         if (configuration.ShowMateria)
             datacenters.Add(9);
+
         if (datacenters.Count == 0)
         {
             Trackers = new();
@@ -147,7 +154,7 @@ public sealed class TrackerService : IDisposable
             return;
         }
 
-        IsRefreshing = true;
+        isRefreshing = true;
         int requestVersion = selectionVersion;
         int requestTerritoryVersion = territoryVersion;
 
@@ -181,8 +188,7 @@ public sealed class TrackerService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            if (!disposed && requestVersion == selectionVersion &&
-                requestTerritoryVersion == territoryVersion)
+            if (IsCurrent(requestVersion, requestTerritoryVersion))
             {
                 ApiError = "Tracker API request timed out.";
                 pluginLog.Warning(ApiError);
@@ -190,17 +196,23 @@ public sealed class TrackerService : IDisposable
         }
         catch (HttpRequestException ex)
         {
-            if (!disposed && requestVersion == selectionVersion &&
-                requestTerritoryVersion == territoryVersion)
+            if (IsCurrent(requestVersion, requestTerritoryVersion))
             {
                 ApiError = ex.Message;
                 pluginLog.Warning(ex, "Tracker API request failed.");
             }
         }
+        catch (JsonException ex)
+        {
+            if (IsCurrent(requestVersion, requestTerritoryVersion))
+            {
+                ApiError = "Tracker API returned an unexpected response.";
+                pluginLog.Warning(ex, "Tracker API response could not be parsed.");
+            }
+        }
         catch (Exception ex)
         {
-            if (!disposed && requestVersion == selectionVersion &&
-                requestTerritoryVersion == territoryVersion)
+            if (IsCurrent(requestVersion, requestTerritoryVersion))
             {
                 ApiError = ex.Message;
                 pluginLog.Error(ex, "Failed to refresh trackers.");
@@ -208,9 +220,9 @@ public sealed class TrackerService : IDisposable
         }
         finally
         {
-            IsRefreshing = false;
             if (disposed)
             {
+                isRefreshing = false;
                 apiCancellation.Dispose();
             }
             else
@@ -220,8 +232,19 @@ public sealed class TrackerService : IDisposable
                     lastRefresh = DateTime.UtcNow;
                 else if (requestVersion != selectionVersion)
                     refreshPending = true;
+
+                // Clear the flag last. Clearing it first let Update() see
+                // "not refreshing" with a stale lastRefresh and start a second refresh.
+                isRefreshing = false;
             }
         }
+    }
+
+    private bool IsCurrent(int requestVersion, int requestTerritoryVersion)
+    {
+        return !disposed &&
+               requestVersion == selectionVersion &&
+               requestTerritoryVersion == territoryVersion;
     }
 
     public void Dispose()
@@ -234,7 +257,7 @@ public sealed class TrackerService : IDisposable
         apiClient.Dispose();
 
         // An in-flight request releases the token source in its finally block.
-        if (!IsRefreshing)
+        if (!isRefreshing)
             apiCancellation.Dispose();
     }
 }

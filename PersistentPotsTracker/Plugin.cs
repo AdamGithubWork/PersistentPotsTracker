@@ -19,13 +19,11 @@ public sealed class Plugin : IDalamudPlugin
 
     private static readonly TimeSpan MatchInterval =
         TimeSpan.FromSeconds(2);
-
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ICommandManager commandManager;
     private readonly IFramework framework;
     private readonly IDataManager dataManager;
     private readonly IPlayerState playerState;
-
     public IClientState ClientState { get; }
     public Configuration Configuration { get; }
 
@@ -263,25 +261,33 @@ public sealed class Plugin : IDalamudPlugin
             ? "Opened the predicted pot location on the map."
             : "Could not open the predicted pot location.";
     }
+
     private void OnFrameworkUpdate(IFramework framework)
     {
         if (disposed)
             return;
 
         DateTime now = DateTime.UtcNow;
-        bool? lifestreamBusy =
-    lifestreamService.TryGetBusy(out bool busy)
-        ? busy
-        : null;
 
-        potMapService.Update(
-            now,
-            ClientState.TerritoryType,
-            GetCurrentDatacenter(),
-            playerState.IsLoaded,
-            lifestreamBusy);
+        // Only check Lifestream while waiting for travel to finish.
+        if (potMapService.HasPendingTravel)
+        {
+            bool? lifestreamBusy =
+                lifestreamService.TryGetBusy(out bool busy)
+                    ? busy
+                    : null;
+
+            potMapService.Update(
+                now,
+                ClientState.TerritoryType,
+                GetCurrentDatacenter(),
+                playerState.IsLoaded,
+                lifestreamBusy);
+        }
+
         bool insideHorn = IsInsideHorn();
 
+        // Check local activity and match instances every 2 seconds.
         if (insideHorn &&
             now - lastMatchCheck >= MatchInterval)
         {
@@ -313,12 +319,14 @@ public sealed class Plugin : IDalamudPlugin
             }
         }
 
+        // Lightweight refresh scheduling.
         trackerService.Update(
             now,
             insideHorn,
             MatchedTrackerId.HasValue,
             mainWindow.IsOpen);
     }
+
 
     public void Dispose()
     {

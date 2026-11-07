@@ -24,6 +24,7 @@ public sealed class PotMapService
     private readonly IPluginLog log;
 
     private PotTableRow? pendingRow;
+    public bool HasPendingTravel => pendingRow != null;
     private DateTime travelStarted;
     private DateTime? idleSince;
     private uint startingTerritory;
