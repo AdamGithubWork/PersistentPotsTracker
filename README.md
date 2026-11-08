@@ -3,7 +3,26 @@
 A Dalamud plugin for tracking Pot FATEs in FFXIV's Occult Crescent.
 
 Pulls data from [FFXIVTracker](https://tracker.xivstats.com/) to show upcoming pot spawns, countdowns, and instance activity in-game. I made this so I wouldn't have to keep checking the tracker website while playing.
+## Installation
 
+Persistent Pots Tracker is available through a custom Dalamud plugin repository.
+
+1. Launch Final Fantasy XIV with Dalamud enabled.
+2. Type `/xlsettings` in chat.
+3. Go to **Experimental → Custom Plugin Repositories**.
+4. Add the following repository URL:
+
+   ```
+   https://raw.githubusercontent.com/AdamGithubWork/PersistentPotsTracker/master/pluginmaster.json
+   ```
+
+5. Enable the repository and save your settings.
+6. Open `/xlplugins` and search for **Persistent Pots Tracker**.
+7. Click **Install**.
+
+Once installed, type `/pots` in-game to open the tracker.
+
+**Optional:** Install [Lifestream](https://github.com/NightmareXIV/Lifestream) to use the Travel feature. The pot timers, table, and overlay work without it.
 ## Features
 
 - **Pot timers** — See the next predicted pot spawn and countdown for South Horn and North Horn.
@@ -31,7 +50,7 @@ A custom repository URL and installation instructions will be added here when th
 
 ## Usage
 
-Type `/pots` in-game to open the tracker.
+Type `/pots` in-game to open the tracker or `/potssettings` in game to open up settings.
 
 ### Main Window
 
@@ -77,6 +96,7 @@ When it finds a unique match, that instance is highlighted in the table.
 
 ## Things to Know
 
+- Only supports NA + Oceania Physical Data Centers. Maybe will expand in the future if there's demand.
 - Spawn times are estimates based on community-reported data, not guaranteed spawn times.
 - Tracker information can be delayed or incomplete.
 - Automatic instance matching isn't always accurate.
