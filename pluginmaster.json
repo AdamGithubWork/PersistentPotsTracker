@@ -4,7 +4,7 @@
     "Author": "Adalith",
     "Name": "Persistent Pots Tracker",
     "InternalName": "PersistentPotsTracker",
-    "AssemblyVersion": "0.0.0.1",
+    "AssemblyVersion": "0.0.0.2",
     "DalamudApiLevel": 15,
     "ApplicableVersion": "any",
     "Punchline": "Track upcoming Pot FATEs in Occult Crescent.",
@@ -17,7 +17,7 @@
     ],
     "IconUrl": "https://raw.githubusercontent.com/AdamGithubWork/PersistentPotsTracker/master/PersistentPotsTracker/images/icon.png?v=2",
     "IsTestingExclusive": false,
-    "DownloadLinkInstall": "https://github.com/AdamGithubWork/PersistentPotsTracker/releases/download/v0.0.0.1/latest.zip",
-    "DownloadLinkUpdate": "https://github.com/AdamGithubWork/PersistentPotsTracker/releases/download/v0.0.0.1/latest.zip"
+    "DownloadLinkInstall": "https://github.com/AdamGithubWork/PersistentPotsTracker/releases/download/v0.0.0.2/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/AdamGithubWork/PersistentPotsTracker/releases/download/v0.0.0.2/latest.zip"
   }
 ]
