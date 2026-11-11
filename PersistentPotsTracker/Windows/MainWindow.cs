@@ -21,11 +21,13 @@ public class MainWindow : Window
     private static readonly Vector4 WarningColor = new(1f, 0.8f, 0.2f, 1f);
     private static readonly Vector4 ErrorColor = new(1f, 0.3f, 0.3f, 1f);
 
+
     private static readonly Dictionary<string, Vector4> RegionRowColors = new()
     {
-        ["North America"] = new(0.92f, 0.49f, 0.14f, 0.40f),
-        ["Materia"] = new(0.90f, 0.78f, 0.14f, 0.40f),
+        ["North America"] = new(0.65f, 0.25f, 0.80f, 0.40f),
+        ["Materia"] = new(0.90f, 0.65f, 0.10f, 0.40f),
     };
+
 
     // Sort keys for the text columns, in column order. Countdown comes after.
     private static readonly Func<PotTableRow, string>[] TextColumns =
