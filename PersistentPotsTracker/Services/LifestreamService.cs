@@ -1,3 +1,4 @@
+
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Services;
@@ -56,9 +57,13 @@ public sealed class LifestreamService
             return false;
         }
 
-        if (row.Datacenter is not ("Aether" or "Primal" or "Crystal" or "Dynamis" or "Materia"))
+        var destinationRegion = GetRegion(row.Datacenter);
+        var currentRegion = GetRegion(currentDatacenter);
+        var homeRegion = GetRegion(homeDatacenter);
+
+        if (destinationRegion is not ("North America" or "Materia"))
         {
-            message = "Unsupported datacenter.";
+            message = "Unsupported region.";
             return false;
         }
 
@@ -68,16 +73,13 @@ public sealed class LifestreamService
             return false;
         }
 
-        // Same DC: run the occult command from wherever we are.
-        // Home DC: go through the home world so we don't end up on a random one.
-        // Other DC: give Lifestream the DC and let it pick the world.
         string command;
 
-        if (string.Equals(row.Datacenter, currentDatacenter, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(destinationRegion, currentRegion, StringComparison.OrdinalIgnoreCase))
         {
             command = occultCommand;
         }
-        else if (string.Equals(row.Datacenter, homeDatacenter, StringComparison.OrdinalIgnoreCase))
+        else if (string.Equals(destinationRegion, homeRegion, StringComparison.OrdinalIgnoreCase))
         {
             if (!IsValidWorldName(homeWorld))
             {
@@ -89,7 +91,8 @@ public sealed class LifestreamService
         }
         else
         {
-            command = $"{row.Datacenter},{occultCommand}";
+            var destinationDatacenter = destinationRegion == "North America" ? "Aether" : "Materia";
+            command = $"{destinationDatacenter},{occultCommand}";
         }
 
         if (!TryGetBusy(out var busy))
@@ -116,12 +119,15 @@ public sealed class LifestreamService
         }
 
         log.Information($"Sent to Lifestream: {command}");
-        message = $"Travelling to {row.Zone} ({row.Datacenter})";
+        message = $"Travelling to {row.Zone} ({destinationRegion})";
         return true;
     }
 
-    // The world name goes straight into Lifestream's command string, so keep it
-    // to letters. A comma or space would change what gets executed.
+    private static string GetRegion(string datacenter) =>
+        datacenter is "Aether" or "Primal" or "Crystal" or "Dynamis" or "North America"
+            ? "North America"
+            : datacenter;
+
     private static bool IsValidWorldName(string name) =>
         !string.IsNullOrWhiteSpace(name) && name.All(char.IsAsciiLetter);
 }
