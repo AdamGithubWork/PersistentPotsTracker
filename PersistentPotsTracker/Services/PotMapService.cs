@@ -129,11 +129,13 @@ public sealed class PotMapService
             return;
         }
 
-        if (!string.Equals(currentDatacenter, row.Datacenter, StringComparison.OrdinalIgnoreCase))
+
+        if (!string.Equals(GetRegion(currentDatacenter), GetRegion(row.Datacenter), StringComparison.OrdinalIgnoreCase))
         {
             arrivalSince = null;
             return;
         }
+
 
         if (!HasArrived(row, currentTerritory))
         {
@@ -149,6 +151,11 @@ public sealed class PotMapService
         CancelPendingTravel();
         ShowOnMap(row);
     }
+
+    private static string GetRegion(string datacenter) =>
+        datacenter is "Aether" or "Primal" or "Crystal" or "Dynamis" or "North America"
+            ? "North America"
+            : datacenter;
 
     private bool HasArrived(PotTableRow row, uint currentTerritory)
     {
