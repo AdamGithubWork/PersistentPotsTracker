@@ -43,6 +43,8 @@ public class MainWindow : Window
 
     private readonly Plugin plugin;
 
+    private readonly Dictionary<int, (long Prediction, long SpawnedAt)> potCountdownStates = new();
+
     private List<PotTableRow> sortedRows = new();
     private List<PotTableRow>? lastSource;
     private string lastSortKey = "";
@@ -415,8 +417,41 @@ public class MainWindow : Window
         }
     }
 
-    private static void DrawCountdown(PotTableRow row, long now)
+
+    private void DrawCountdown(PotTableRow row, long now)
     {
+        const long spawnNoticeSeconds = 60;
+
+        potCountdownStates.TryGetValue(row.TrackerId, out var state);
+
+        var spawnedAt = state.SpawnedAt;
+
+        if (state.Prediction > 0 &&
+            now >= state.Prediction &&
+            now - state.Prediction < spawnNoticeSeconds)
+        {
+            spawnedAt = Math.Max(spawnedAt, state.Prediction);
+        }
+
+        if (row.NextSpawnTime > 0 &&
+            now >= row.NextSpawnTime &&
+            now - row.NextSpawnTime < spawnNoticeSeconds)
+        {
+            spawnedAt = Math.Max(spawnedAt, row.NextSpawnTime);
+        }
+
+        potCountdownStates[row.TrackerId] = (row.NextSpawnTime, spawnedAt);
+
+
+        if (spawnedAt > 0 && now - spawnedAt < spawnNoticeSeconds)
+        {
+            var elapsed = now - spawnedAt;
+            ImGui.TextColored(SuccessColor,
+                $"Pots ready / overdue ({elapsed / 60}:{elapsed % 60:D2})");
+            return;
+        }
+
+
         if (row.NextSpawnTime == 0)
         {
             ImGui.TextDisabled("Waiting for first Pot");
@@ -426,12 +461,13 @@ public class MainWindow : Window
         var remaining = row.NextSpawnTime - now;
 
         if (remaining <= 0)
-            ImGui.TextColored(SuccessColor, "Ready / Overdue");
+            ImGui.TextColored(SuccessColor, "Pots ready / overdue");
         else if (remaining <= SoonThresholdSeconds)
             ImGui.TextColored(WarningColor, FormatCountdown(remaining));
         else
             ImGui.TextUnformatted(FormatCountdown(remaining));
     }
+
 
     private static string FormatCountdown(long seconds)
     {

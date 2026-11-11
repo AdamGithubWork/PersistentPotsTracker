@@ -9,11 +9,14 @@ namespace PersistentPotsTracker.Windows;
 
 public class PotOverlayWindow : Window
 {
+    private const long SpawnNoticeSeconds = 60;
+
     private readonly Plugin plugin;
 
     private List<PotTableRow>? lastSource;
     private string lastRegion = "";
     private PotTableRow? cachedNextPot;
+    private PotTableRow? spawnedPot;
 
     public PotOverlayWindow(Plugin plugin)
         : base("Pot Overlay###PersistentPotsOverlay")
@@ -53,41 +56,76 @@ public class PotOverlayWindow : Window
         if (region == "Unknown")
             return "Pots: Region unknown";
 
+        if (spawnedPot != null)
+        {
+            var elapsed = now - spawnedPot.NextSpawnTime;
+
+            return $"{region} | Pots ready / overdue ({elapsed / 60}:{elapsed % 60:D2})\n" +
+                   $"Next pots: {GetNextPotLabel(now)}";
+        }
+
         if (cachedNextPot == null)
             return $"{region} Pots: --:--";
 
-        var zone = cachedNextPot.Zone switch
-        {
-            "South Horn" => "South",
-            "North Horn" => "North",
-            _ => cachedNextPot.Zone
-        };
+        return $"{region} | {GetZoneName(cachedNextPot.Zone)}: " +
+               FormatCountdown(cachedNextPot.NextSpawnTime - now);
+    }
 
-        return $"{region} | {zone}: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}";
+    private string GetNextPotLabel(long now)
+    {
+        if (cachedNextPot == null)
+            return "--:--";
+
+        return $"{GetZoneName(cachedNextPot.Zone)} " +
+               FormatCountdown(cachedNextPot.NextSpawnTime - now);
     }
 
     private void UpdateNextPot(string region, long now)
     {
         var source = plugin.PotRows;
 
-        if (ReferenceEquals(lastSource, source) &&
-            lastRegion == region &&
-            (cachedNextPot == null || cachedNextPot.NextSpawnTime > now))
+        if (lastRegion != region)
         {
-            return;
+            lastRegion = region;
+            lastSource = null;
+            cachedNextPot = null;
+            spawnedPot = null;
         }
 
+        var expired = cachedNextPot != null &&
+                      now >= cachedNextPot.NextSpawnTime;
+
+        if (expired)
+        {
+            if (now - cachedNextPot!.NextSpawnTime < SpawnNoticeSeconds)
+                spawnedPot = cachedNextPot;
+
+            cachedNextPot = null;
+        }
+
+        if (spawnedPot != null &&
+            now - spawnedPot.NextSpawnTime >= SpawnNoticeSeconds)
+        {
+            spawnedPot = null;
+        }
+
+        if (!expired && ReferenceEquals(lastSource, source))
+            return;
+
         lastSource = source;
-        lastRegion = region;
         cachedNextPot = null;
 
         foreach (var row in source)
         {
-            if (GetRegion(row.Datacenter) != region || row.NextSpawnTime <= now)
+            if (GetRegion(row.Datacenter) != region ||
+                row.NextSpawnTime <= now)
                 continue;
 
-            if (cachedNextPot == null || row.NextSpawnTime < cachedNextPot.NextSpawnTime)
+            if (cachedNextPot == null ||
+                row.NextSpawnTime < cachedNextPot.NextSpawnTime)
+            {
                 cachedNextPot = row;
+            }
         }
     }
 
@@ -96,6 +134,19 @@ public class PotOverlayWindow : Window
         if (region == "Unknown")
         {
             ImGui.SetTooltip("Waiting for current region information");
+            return;
+        }
+
+        if (spawnedPot != null)
+        {
+            var elapsed = now - spawnedPot.NextSpawnTime;
+
+            ImGui.SetTooltip(
+                $"Pot predicted to have spawned in {spawnedPot.Zone}\n" +
+                $"Pot location: {spawnedPot.NextPot}\n" +
+                $"Time since prediction: {elapsed / 60}:{elapsed % 60:D2}\n" +
+                $"Next pots: {GetNextPotLabel(now)}\n\n" +
+                "Click to open Persistent Pots Tracker");
             return;
         }
 
@@ -112,6 +163,13 @@ public class PotOverlayWindow : Window
             $"Countdown: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}\n\n" +
             "Click to open Persistent Pots Tracker");
     }
+
+    private static string GetZoneName(string zone) => zone switch
+    {
+        "South Horn" => "South",
+        "North Horn" => "North",
+        _ => zone
+    };
 
     private static string GetRegion(string datacenter) =>
         datacenter is "Aether" or "Primal" or "Crystal" or "Dynamis" or "North America"
