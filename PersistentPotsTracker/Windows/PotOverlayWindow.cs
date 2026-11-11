@@ -1,3 +1,4 @@
+
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using PersistentPotsTracker.Models;
@@ -11,7 +12,7 @@ public class PotOverlayWindow : Window
     private readonly Plugin plugin;
 
     private List<PotTableRow>? lastSource;
-    private string lastDatacenter = "";
+    private string lastRegion = "";
     private PotTableRow? cachedNextPot;
 
     public PotOverlayWindow(Plugin plugin)
@@ -31,32 +32,29 @@ public class PotOverlayWindow : Window
         RespectCloseHotkey = false;
     }
 
-    // The window stays "open" either way; this just skips drawing it when the
-    // setting is off.
     public override bool DrawConditions() => plugin.Configuration.ShowPotOverlay;
 
     public override void Draw()
     {
-        var datacenter = plugin.GetCurrentDatacenter();
+        var region = GetRegion(plugin.GetCurrentDatacenter());
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-        UpdateNextPot(datacenter, now);
+        UpdateNextPot(region, now);
 
-        // The ### keeps the button ID constant while the label text changes.
-        if (ImGui.Button($"{BuildLabel(datacenter, now)}###PotOverlayButton"))
+        if (ImGui.Button($"{BuildLabel(region, now)}###PotOverlayButton"))
             plugin.OpenTrackerWindow();
 
         if (ImGui.IsItemHovered())
-            DrawTooltip(datacenter, now);
+            DrawTooltip(region, now);
     }
 
-    private string BuildLabel(string datacenter, long now)
+    private string BuildLabel(string region, long now)
     {
-        if (datacenter == "Unknown")
-            return "Pots: Datacenter unknown";
+        if (region == "Unknown")
+            return "Pots: Region unknown";
 
         if (cachedNextPot == null)
-            return $"{datacenter} Pots: --:--";
+            return $"{region} Pots: --:--";
 
         var zone = cachedNextPot.Zone switch
         {
@@ -65,30 +63,27 @@ public class PotOverlayWindow : Window
             _ => cachedNextPot.Zone
         };
 
-        return $"{datacenter} | {zone}: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}";
+        return $"{region} | {zone}: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}";
     }
 
-    // The soonest upcoming pot on our datacenter. Cached so we don't scan every
-    // frame; recomputed when the data or datacenter changes, or once the cached
-    // pot has spawned and a later one should take over.
-    private void UpdateNextPot(string datacenter, long now)
+    private void UpdateNextPot(string region, long now)
     {
         var source = plugin.PotRows;
 
         if (ReferenceEquals(lastSource, source) &&
-            lastDatacenter == datacenter &&
+            lastRegion == region &&
             (cachedNextPot == null || cachedNextPot.NextSpawnTime > now))
         {
             return;
         }
 
         lastSource = source;
-        lastDatacenter = datacenter;
+        lastRegion = region;
         cachedNextPot = null;
 
         foreach (var row in source)
         {
-            if (row.Datacenter != datacenter || row.NextSpawnTime <= now)
+            if (GetRegion(row.Datacenter) != region || row.NextSpawnTime <= now)
                 continue;
 
             if (cachedNextPot == null || row.NextSpawnTime < cachedNextPot.NextSpawnTime)
@@ -96,11 +91,11 @@ public class PotOverlayWindow : Window
         }
     }
 
-    private void DrawTooltip(string datacenter, long now)
+    private void DrawTooltip(string region, long now)
     {
-        if (datacenter == "Unknown")
+        if (region == "Unknown")
         {
-            ImGui.SetTooltip("Waiting for current datacenter information");
+            ImGui.SetTooltip("Waiting for current region information");
             return;
         }
 
@@ -111,12 +106,17 @@ public class PotOverlayWindow : Window
         }
 
         ImGui.SetTooltip(
-            $"Next predicted Pot on {datacenter}\n" +
+            $"Next predicted Pot in {region}\n" +
             $"Zone: {cachedNextPot.Zone}\n" +
             $"Pot location: {cachedNextPot.NextPot}\n" +
             $"Countdown: {FormatCountdown(cachedNextPot.NextSpawnTime - now)}\n\n" +
             "Click to open Persistent Pots Tracker");
     }
+
+    private static string GetRegion(string datacenter) =>
+        datacenter is "Aether" or "Primal" or "Crystal" or "Dynamis" or "North America"
+            ? "North America"
+            : datacenter;
 
     private static string FormatCountdown(long seconds)
     {
