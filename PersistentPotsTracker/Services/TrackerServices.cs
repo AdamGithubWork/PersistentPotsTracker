@@ -173,12 +173,20 @@ public sealed class TrackerService : IDisposable
 
         refreshPending = false;
 
-        var datacenters = new List<int>(5);
-        if (configuration.ShowAether) datacenters.Add(4);
-        if (configuration.ShowPrimal) datacenters.Add(5);
-        if (configuration.ShowCrystal) datacenters.Add(8);
-        if (configuration.ShowDynamis) datacenters.Add(11);
-        if (configuration.ShowMateria) datacenters.Add(9);
+
+        var datacenters = new List<int>(2);
+
+        if (configuration.ShowAether ||
+            configuration.ShowPrimal ||
+            configuration.ShowCrystal ||
+            configuration.ShowDynamis)
+        {
+            datacenters.Add(4);
+        }
+
+        if (configuration.ShowMateria)
+            datacenters.Add(9);
+
 
         if (datacenters.Count == 0)
         {
