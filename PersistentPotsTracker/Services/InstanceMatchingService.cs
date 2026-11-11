@@ -106,15 +106,14 @@ public class InstanceMatchingService
             return null;
 
         // Unknown datacenter (id 0) means don't filter by it.
+
         int datacenterId = datacenter switch
         {
-            "Aether" => 4,
-            "Primal" => 5,
-            "Crystal" => 8,
+            "Aether" or "Primal" or "Crystal" or "Dynamis" or "North America" => 4,
             "Materia" => 9,
-            "Dynamis" => 11,
             _ => 0
         };
+
         long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         int? matchingTrackerId = null;
 

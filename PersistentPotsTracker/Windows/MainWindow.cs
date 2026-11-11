@@ -21,19 +21,16 @@ public class MainWindow : Window
     private static readonly Vector4 WarningColor = new(1f, 0.8f, 0.2f, 1f);
     private static readonly Vector4 ErrorColor = new(1f, 0.3f, 0.3f, 1f);
 
-    private static readonly Dictionary<string, Vector4> DatacenterRowColors = new()
+    private static readonly Dictionary<string, Vector4> RegionRowColors = new()
     {
-        ["Aether"] = new(0.92f, 0.49f, 0.14f, 0.40f),
-        ["Primal"] = new(0.86f, 0.18f, 0.22f, 0.40f),
-        ["Crystal"] = new(0.59f, 0.25f, 0.88f, 0.40f),
-        ["Dynamis"] = new(0.96f, 0.31f, 0.67f, 0.40f),
+        ["North America"] = new(0.92f, 0.49f, 0.14f, 0.40f),
         ["Materia"] = new(0.90f, 0.78f, 0.14f, 0.40f),
     };
 
     // Sort keys for the text columns, in column order. Countdown comes after.
     private static readonly Func<PotTableRow, string>[] TextColumns =
     {
-        r => r.Datacenter,
+        r => GetRegionName(r.Datacenter),
         r => r.Zone,
         r => r.LastCurrentCE,
         r => r.LastCurrentFate,
@@ -70,7 +67,7 @@ public class MainWindow : Window
         lifestreamEnabled = plugin.Configuration.UseLifestream;
         lifestreamAvailable = plugin.IsLifestreamAvailable;
 
-        DrawDatacenterFilters();
+        DrawRegionFilters();
         ImGui.Separator();
         DrawRefreshControls();
         ImGui.Separator();
@@ -95,20 +92,14 @@ public class MainWindow : Window
         return row;
     }
 
-    private void DrawDatacenterFilters()
+    private void DrawRegionFilters()
     {
         var config = plugin.Configuration;
 
-        ImGui.Text("Datacenters");
+        ImGui.Text("Regions");
 
         var changed = false;
-        changed |= DrawFilter("Aether", config.ShowAether, v => config.ShowAether = v);
-        ImGui.SameLine();
-        changed |= DrawFilter("Primal", config.ShowPrimal, v => config.ShowPrimal = v);
-        ImGui.SameLine();
-        changed |= DrawFilter("Crystal", config.ShowCrystal, v => config.ShowCrystal = v);
-        ImGui.SameLine();
-        changed |= DrawFilter("Dynamis", config.ShowDynamis, v => config.ShowDynamis = v);
+        changed |= DrawFilter("North America", config.ShowNorthAmerica, v => config.ShowNorthAmerica = v);
         ImGui.SameLine();
         changed |= DrawFilter("Materia", config.ShowMateria, v => config.ShowMateria = v);
 
@@ -182,7 +173,7 @@ public class MainWindow : Window
         if (!ImGui.BeginTable("PotTimerTable", 6, flags, new Vector2(0, tableHeight)))
             return;
 
-        ImGui.TableSetupColumn("Datacenter");
+        ImGui.TableSetupColumn("Region");
         ImGui.TableSetupColumn("Zone");
         ImGui.TableSetupColumn("Last/Current CE");
         ImGui.TableSetupColumn("Last/Current FATE");
@@ -253,6 +244,7 @@ public class MainWindow : Window
 
     private void DrawPotRow(PotTableRow row, long now)
     {
+        var region = GetRegionName(row.Datacenter);
         var isCurrentInstance = plugin.MatchedTrackerId == row.TrackerId;
         var isSelected = selectedTrackerId == row.TrackerId;
 
@@ -261,7 +253,7 @@ public class MainWindow : Window
 
         if (plugin.Configuration.ColorCodeDatacenters && !isSelected && !isCurrentInstance)
         {
-            var color = DatacenterRowColors.GetValueOrDefault(row.Datacenter);
+            var color = RegionRowColors.GetValueOrDefault(region);
             ImGui.TableSetBgColor(ImGuiTableBgTarget.CellBg, ImGui.ColorConvertFloat4ToU32(color));
         }
 
@@ -269,9 +261,9 @@ public class MainWindow : Window
         var rowMin = ImGui.GetCursorScreenPos();
 
         if (isCurrentInstance)
-            ImGui.TextColored(SuccessColor, row.Datacenter);
+            ImGui.TextColored(SuccessColor, region);
         else
-            ImGui.TextUnformatted(row.Datacenter);
+            ImGui.TextUnformatted(region);
 
         ImGui.TableSetColumnIndex(1);
         ImGui.TextUnformatted(row.Zone);
@@ -337,6 +329,11 @@ public class MainWindow : Window
     private static void SetRowBackground(Vector4 color) =>
         ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, ImGui.ColorConvertFloat4ToU32(color));
 
+    private static string GetRegionName(string datacenter) =>
+        datacenter is "Aether" or "Primal" or "Crystal" or "Dynamis"
+            ? "North America"
+            : datacenter;
+
     // Whether the row has a known destination. Used by the row hover logic and
     // the travel panel.
     private static bool CanTravel(PotTableRow row) =>
@@ -355,7 +352,7 @@ public class MainWindow : Window
         }
 
         ImGui.TextDisabled("Selected destination");
-        ImGui.TextUnformatted($"{row.Datacenter} - {row.Zone}");
+        ImGui.TextUnformatted($"{GetRegionName(row.Datacenter)} - {row.Zone}");
 
         var knownDestination = CanTravel(row);
         var canTravel = lifestreamEnabled && lifestreamAvailable && knownDestination;
@@ -410,7 +407,7 @@ public class MainWindow : Window
             else if (knownDestination)
             {
                 ImGui.SetTooltip(
-                    $"Travel to {row.Datacenter} / {row.Zone}\n" +
+                    $"Travel to {GetRegionName(row.Datacenter)} / {row.Zone}\n" +
                     "Uses Lifestream and opens the pot map after arrival.");
             }
         }

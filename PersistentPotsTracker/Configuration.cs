@@ -1,5 +1,7 @@
+
 using Dalamud.Configuration;
 using Dalamud.Plugin;
+using Newtonsoft.Json;
 using System;
 
 namespace PersistentPotsTracker;
@@ -14,6 +16,20 @@ public class Configuration : IPluginConfiguration
     public bool ShowCrystal { get; set; } = true;
     public bool ShowDynamis { get; set; } = true;
     public bool ShowMateria { get; set; } = true;
+
+    [JsonIgnore]
+    public bool ShowNorthAmerica
+    {
+        get => ShowAether || ShowPrimal || ShowCrystal || ShowDynamis;
+        set
+        {
+            ShowAether = value;
+            ShowPrimal = value;
+            ShowCrystal = value;
+            ShowDynamis = value;
+        }
+    }
+
     public bool ShowPotOverlay { get; set; } = true;
     public bool UseLifestream { get; set; } = true;
     public bool ColorCodeDatacenters { get; set; } = true;
