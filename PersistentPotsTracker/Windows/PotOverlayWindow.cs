@@ -51,25 +51,30 @@ public class PotOverlayWindow : Window
             DrawTooltip(region, now);
     }
 
+
     private string BuildLabel(string region, long now)
     {
         if (region == "Unknown")
             return "Pots: Region unknown";
 
+        var displayRegion = region == "North America" ? "NA" : region;
+
         if (spawnedPot != null)
         {
             var elapsed = now - spawnedPot.NextSpawnTime;
+            var zone = GetZoneName(spawnedPot.Zone);
 
-            return $"{region} | Pots ready / overdue ({elapsed / 60}:{elapsed % 60:D2})\n" +
+            return $"{displayRegion} | {zone} ready: {elapsed / 60}:{elapsed % 60:D2}\n" +
                    $"Next pots: {GetNextPotLabel(now)}";
         }
 
         if (cachedNextPot == null)
-            return $"{region} Pots: --:--";
+            return $"{displayRegion} Pots: --:--";
 
-        return $"{region} | {GetZoneName(cachedNextPot.Zone)}: " +
+        return $"{displayRegion} | {GetZoneName(cachedNextPot.Zone)}: " +
                FormatCountdown(cachedNextPot.NextSpawnTime - now);
     }
+
 
     private string GetNextPotLabel(long now)
     {
